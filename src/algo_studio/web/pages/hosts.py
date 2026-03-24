@@ -32,6 +32,21 @@ def _render_host_card(hostname: str, ip: str, status: str, resources: dict, is_l
         color = _color_pct(pct)
         used_str = f"{used:.1f}" if isinstance(used, float) else str(used)
         total_str = f"{total:.1f}" if isinstance(total, float) else str(total)
+
+        def _parse_size(s: str) -> float:
+            """Parse size string like '100Gi', '500G', '1.5T' to float."""
+            s = str(s).strip()
+            for unit in ["Ti", "Gi", "Mi", "Ki", "T", "G", "M", "K"]:
+                if s.endswith(unit):
+                    try:
+                        return float(s[:-len(unit)])
+                    except ValueError:
+                        return 0.0
+            try:
+                return float(s)
+            except ValueError:
+                return 0.0
+
         return (
             f'<div style="margin:4px 0">'
             f'<div style="display:flex;justify-content:space-between;font-size:13px">'
@@ -41,12 +56,6 @@ def _render_host_card(hostname: str, ip: str, status: str, resources: dict, is_l
             f'<div style="width:{pct:.0f}%;background:{color};height:8px;border-radius:4px"></div></div>'
             f'</div>'
         )
-
-    def parse_val(s, unit=""):
-        try:
-            return float(str(s).rstrip("GiG"))
-        except (ValueError, TypeError):
-            return 0.0
 
     gpu_name = html.escape(str(gpu.get("name", "N/A")))
     gpu_total = gpu.get("total", 0) or 0
@@ -81,15 +90,15 @@ def _render_host_card(hostname: str, ip: str, status: str, resources: dict, is_l
         </div>
         <div style="font-size:13px;margin-bottom:8px">
             <strong>Memory</strong>
-            {bar(parse_val(mem_used_str), parse_val(mem_str), unit="Gi")}
+            {bar(_parse_size(mem_used_str), _parse_size(mem_str), unit="Gi")}
         </div>
         <div style="font-size:13px;margin-bottom:8px">
             <strong>Disk</strong>
-            {bar(parse_val(disk_used_str), parse_val(disk_str), unit="G")}
+            {bar(_parse_size(disk_used_str), _parse_size(disk_str), unit="G")}
         </div>
         <div style="font-size:13px">
             <strong>Swap</strong>
-            {bar(parse_val(swap_used_str), parse_val(swap_str), unit="Gi")}
+            {bar(_parse_size(swap_used_str), _parse_size(swap_str), unit="Gi")}
         </div>
     </div>
     """
@@ -99,15 +108,12 @@ def make_page():
     """Build the Hosts monitoring page."""
     with gr.Column():
         gr.Markdown("## 主机监控")
-        with gr.Row():
-            refresh_btn = gr.Button("刷新", variant="primary")
-            auto_refresh = gr.Checkbox(label="自动刷新 (30秒)", value=False)
-
+        refresh_btn = gr.Button("刷新", variant="primary")
         html_output = gr.HTML(label="主机状态", value="<p>点击刷新以加载数据</p>")
 
         refresh_btn.click(fn=load_hosts, outputs=[html_output])
 
-        return html_output, refresh_btn, auto_refresh
+        return html_output, refresh_btn
 
 
 def load_hosts() -> str:

@@ -88,28 +88,22 @@ class TestHostsPage:
             mock_column.__exit__ = MagicMock(return_value=None)
             mock_gr.Column.return_value = mock_column
 
-            mock_row = MagicMock()
-            mock_row.__enter__ = MagicMock(return_value=None)
-            mock_row.__exit__ = MagicMock(return_value=None)
-            mock_gr.Row.return_value = mock_row
-
             mock_gr.Markdown.return_value = MagicMock()
             mock_gr.Button.return_value = MagicMock()
-            mock_gr.Checkbox.return_value = MagicMock()
             mock_gr.HTML.return_value = MagicMock()
 
             from algo_studio.web.pages.hosts import make_page
 
             result = make_page()
             assert result is not None
-            assert len(result) == 3  # html_output, refresh_btn, auto_refresh
+            assert len(result) == 2  # html_output, refresh_btn
 
     @patch("algo_studio.web.pages.hosts.get_hosts_status")
     def test_load_hosts_error_handling(self, mock_get):
         mock_get.side_effect = RuntimeError("API unreachable")
         with patch('algo_studio.web.pages.hosts.gr'):
             from algo_studio.web.pages.hosts import make_page, load_hosts
-            html_output, refresh_btn, auto_refresh = make_page()
+            html_output, refresh_btn = make_page()
             result = load_hosts()
             assert "加载失败" in result
 
