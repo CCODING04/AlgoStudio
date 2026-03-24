@@ -394,10 +394,6 @@ class NodeStatus:
     def memory_available_gb(self) -> float:
         return self.memory_total_gb - self.memory_used_gb
 
-    @property
-    def memory_available_gb(self) -> float:
-        return self.memory_total_gb - self.memory_used_gb
-
 class RayClient:
     def __init__(self, head_address: str | None = None):
         self.head_address = head_address
