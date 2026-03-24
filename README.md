@@ -69,6 +69,30 @@ algo task list
 algo task status task-001
 ```
 
+## Web Console (Phase 2)
+
+### 安装依赖
+```bash
+pip install -r requirements-web.txt
+```
+
+### 启动 Web Console
+```bash
+# 首先启动 API 服务器
+PYTHONPATH="$(pwd)/src" python -m uvicorn algo_studio.api.main:app --host 0.0.0.0 --port 8000 &
+
+# 然后启动 Web Console
+PYTHONPATH="$(pwd)/src" python -m algo_studio.web.app --host 0.0.0.0 --port 7860
+```
+
+### 访问
+打开浏览器访问 http://localhost:7860
+
+页面说明：
+- **仪表盘** — 任务统计和集群概览
+- **任务列表** — 查看和筛选所有任务
+- **主机监控** — 实时 CPU/GPU/内存状态
+
 ## 项目结构
 
 ```
