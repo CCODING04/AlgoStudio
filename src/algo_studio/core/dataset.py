@@ -1,14 +1,14 @@
 import os
 import subprocess
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, List, Optional
 
 @dataclass
 class DatasetInfo:
     name: str
     path: str
-    version: str | None
-    size_gb: float | None
+    version: Optional[str]
+    size_gb: Optional[float]
 
 class DatasetManager:
     """数据集管理 - 使用 DVC 进行版本控制"""
@@ -16,7 +16,7 @@ class DatasetManager:
     def __init__(self, base_path: str = "/nas/datasets"):
         self.base_path = base_path
 
-    def list_datasets(self) -> list[DatasetInfo]:
+    def list_datasets(self) -> List[DatasetInfo]:
         """列出所有数据集"""
         datasets = []
         if not os.path.exists(self.base_path):

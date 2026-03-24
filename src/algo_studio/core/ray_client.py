@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, List, Optional
 import ray
 
 # GPU 可用性检测
@@ -39,14 +39,14 @@ class NodeStatus:
         return self.memory_total_gb - self.memory_used_gb
 
 class RayClient:
-    def __init__(self, head_address: str | None = None):
+    def __init__(self, head_address: Optional[str] = None):
         self.head_address = head_address
         if head_address:
             ray.init(address=head_address)
         else:
             ray.init()
 
-    def get_nodes(self) -> list[NodeStatus]:
+    def get_nodes(self) -> List[NodeStatus]:
         """获取所有节点状态"""
         import psutil
         nodes = []

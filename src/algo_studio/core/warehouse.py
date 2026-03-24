@@ -1,21 +1,21 @@
 import json
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 @dataclass
 class AlgorithmVersion:
     name: str
     version: str
     path: str
-    metadata: dict[str, Any]
+    metadata: Dict[str, Any]
 
 class AlgorithmWarehouse:
     """算法仓库 - 管理算法注册、版本、查找"""
 
     def __init__(self, base_path: str = "/algorithms"):
         self.base_path = base_path
-        self._index: dict[str, AlgorithmVersion] = {}
+        self._index: Dict[str, AlgorithmVersion] = {}
 
     def register(self, name: str, version: str, path: str):
         """注册新算法版本"""
@@ -35,16 +35,16 @@ class AlgorithmWarehouse:
         key = f"{name}:{version}"
         self._index[key] = version_info
 
-    def list_versions(self, name: str) -> list[AlgorithmVersion]:
+    def list_versions(self, name: str) -> List[AlgorithmVersion]:
         """列出某算法的所有版本"""
         return [v for v in self._index.values() if v.name == name]
 
-    def get_version(self, name: str, version: str) -> AlgorithmVersion | None:
+    def get_version(self, name: str, version: str) -> Optional[AlgorithmVersion]:
         """获取指定版本"""
         key = f"{name}:{version}"
         return self._index.get(key)
 
-    def list_algorithms(self) -> list[str]:
+    def list_algorithms(self) -> List[str]:
         """列出所有算法"""
         return list(set(v.name for v in self._index.values()))
 

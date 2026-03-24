@@ -2,6 +2,7 @@
 import socket
 import psutil
 from dataclasses import dataclass
+from typing import Optional
 
 try:
     import pynvml
@@ -18,7 +19,7 @@ class HostInfo:
     cpu_used: int
     memory_total_gb: float
     memory_used_gb: float
-    gpu_name: str | None
+    gpu_name: Optional[str]
     gpu_count: int
     gpu_used: int
     disk_total_gb: float

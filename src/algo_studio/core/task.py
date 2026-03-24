@@ -1,6 +1,6 @@
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Dict, Optional
 import uuid
 from datetime import datetime
 import ray
@@ -25,15 +25,15 @@ class Task:
     algorithm_version: str
     status: TaskStatus = TaskStatus.PENDING
     created_at: datetime = field(default_factory=datetime.now)
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-    config: dict[str, Any] = field(default_factory=dict)
-    result: dict[str, Any] | None = None
-    error: str | None = None
-    assigned_node: str | None = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    config: Dict[str, Any] = field(default_factory=dict)
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    assigned_node: Optional[str] = None
 
     @staticmethod
-    def create(task_type: TaskType, algorithm_name: str, algorithm_version: str, config: dict) -> "Task":
+    def create(task_type: TaskType, algorithm_name: str, algorithm_version: str, config: Dict) -> "Task":
         """创建新任务"""
         task_id = f"{task_type.value}-{uuid.uuid4().hex[:8]}"
         return Task(
@@ -52,9 +52,9 @@ class TaskManager:
     """
 
     def __init__(self):
-        self._tasks: dict[str, Task] = {}
+        self._tasks: Dict[str, Task] = {}
 
-    def create_task(self, task_type: TaskType, algorithm_name: str, algorithm_version: str, config: dict) -> Task:
+    def create_task(self, task_type: TaskType, algorithm_name: str, algorithm_version: str, config: Dict) -> Task:
         """创建并注册新任务"""
         task = Task.create(task_type, algorithm_name, algorithm_version, config)
         self._tasks[task.task_id] = task
