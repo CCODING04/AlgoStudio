@@ -82,7 +82,6 @@ class TestDashboardPage:
 
 class TestTasksPage:
     def test_make_page_returns_components(self):
-        # Mock gr module to avoid Blocks context requirement
         with patch('algo_studio.web.pages.tasks.gr') as mock_gr:
             # Setup mock chain for context managers
             mock_column = MagicMock()
@@ -101,10 +100,37 @@ class TestTasksPage:
             mock_gr.Button.return_value = MagicMock()
             mock_gr.Dataframe.return_value = MagicMock()
 
-            # Import and run make_page
             from algo_studio.web.pages.tasks import make_page
 
             page = make_page()
             assert page is not None
-            # Should return 3 components
             assert len(page) == 3
+
+    @patch("algo_studio.web.pages.tasks.get_tasks")
+    @patch('algo_studio.web.pages.tasks.gr')
+    def test_load_tasks_handles_error(self, mock_gr, mock_get):
+        mock_get.side_effect = RuntimeError("API unreachable")
+
+        # Setup mock chain for context managers
+        mock_column = MagicMock()
+        mock_column.__enter__ = MagicMock(return_value=None)
+        mock_column.__exit__ = MagicMock(return_value=None)
+        mock_gr.Column.return_value = mock_column
+
+        mock_row = MagicMock()
+        mock_row.__enter__ = MagicMock(return_value=None)
+        mock_row.__exit__ = MagicMock(return_value=None)
+        mock_gr.Row.return_value = mock_row
+
+        mock_gr.Markdown.return_value = MagicMock()
+        mock_gr.Dropdown.return_value = MagicMock()
+        mock_gr.Button.return_value = MagicMock()
+        mock_gr.Dataframe.return_value = MagicMock()
+
+        from algo_studio.web.pages.tasks import make_page
+
+        # Test that page renders even when get_tasks raises an error
+        tasks_table, refresh_btn, filter_status = make_page()
+        assert tasks_table is not None
+        assert refresh_btn is not None
+        assert filter_status is not None
