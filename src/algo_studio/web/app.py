@@ -6,7 +6,7 @@ from algo_studio.web.pages.hosts import make_page as make_hosts
 
 def create_app():
     """Create the Gradio Blocks app."""
-    with gr.Blocks(title="AlgoStudio", theme=gr.themes.Default()) as app:
+    with gr.Blocks(title="AlgoStudio") as app:
         gr.Markdown("# AlgoStudio 控制台")
 
         with gr.Tab("仪表盘"):
@@ -27,4 +27,4 @@ if __name__ == "__main__":
     import os
     host = os.environ.get("GRADIO_HOST", "0.0.0.0")
     port = int(os.environ.get("GRADIO_PORT", "7860"))
-    app.launch(server_name=host, server_port=port)
+    app.launch(server_name=host, server_port=port, theme=gr.themes.Default())
