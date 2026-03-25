@@ -38,11 +38,14 @@ echo ""
 # Step 1: 创建隔离虚拟环境（用 uv，不污染系统）
 if [ ! -d "$VENV_DIR" ]; then
     echo "[1/4] 创建 uv 虚拟环境..."
-    if command -v uv &> /dev/null; then
-        uv venv "$VENV_DIR" --python 3.10
-    else
-        python3 -m venv "$VENV_DIR"
+    if ! command -v uv &> /dev/null; then
+        echo "      uv 未安装，正在安装 uv..."
+        # 安装 uv（单行命令，自动检测平台）
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        # 让当前 shell 加载 uv
+        export PATH="$HOME/.local/bin:$PATH"
     fi
+    uv venv "$VENV_DIR" --python 3.10
     echo "Done."
 else
     echo "[1/4] 虚拟环境已存在，跳过创建。"
@@ -50,7 +53,8 @@ fi
 
 # Step 2: 安装依赖
 echo "[2/4] 安装 Ray 和 algo_studio 依赖..."
-"$VENV_DIR/bin/pip" install --quiet ray python-dotenv psutil pynvml requests
+export PATH="$HOME/.local/bin:$PATH"
+uv pip install --python "$VENV_DIR/bin/python" ray python-dotenv psutil pynvml requests
 
 # Step 3: 启动 Worker
 echo "[3/4] 启动 Ray Worker，连接到 $HEAD_IP:$RAY_HEAD_PORT..."

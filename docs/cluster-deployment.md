@@ -82,15 +82,24 @@ ray stop
 
 如果不使用自动脚本，手动部署步骤如下：
 
-### 1. 创建隔离环境
+### 1. 安装 uv（如未安装）
+
+脚本会自动检测并安装 uv，如需手动安装：
+
+```bash
+# 方式一：官方安装脚本（推荐）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
+
+# 方式二：pip 安装
+pip install uv
+```
+
+### 2. 创建隔离环境
 
 ```bash
 # 使用 uv 创建独立虚拟环境
 uv venv .venv-ray --python 3.10
-source .venv-ray/bin/activate
-
-# 或使用标准 venv
-python3 -m venv .venv-ray
 source .venv-ray/bin/activate
 ```
 
