@@ -28,16 +28,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$PROJECT_DIR/.venv-ray"
 
-# Python 版本需与 Head 节点一致（Head 通过 .venv/bin/python --version 查看）
-# 可通过 PYTHON_BIN 环境变量指定，如：PYTHON_BIN=/usr/bin/python3.10 bash join_cluster.sh <HEAD_IP>
-PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.10 2>/dev/null || command -v python3 2>/dev/null || echo "python3")}"
+# Python 版本需与 Head 节点一致（Head 查看：~/.venv/bin/python --version）
+# Head 节点通常为 Python 3.10.12
+PYTHON_VERSION="${PYTHON_VERSION:-3.10.12}"
 
 echo "=========================================="
 echo " AlgoStudio Ray Worker 快速部署"
 echo "=========================================="
 echo "Head IP: $HEAD_IP"
 echo "虚拟环境: $VENV_DIR"
-echo "Python:  $($PYTHON_BIN --version 2>&1)"
+echo "Python:  $PYTHON_VERSION"
 echo ""
 
 # Step 1: 创建隔离虚拟环境（用 uv，不污染系统）
@@ -52,7 +52,12 @@ if [ ! -d "$VENV_DIR" ]; then
         # 让当前 shell 加载 uv
         export PATH="$HOME/.local/bin:$PATH"
     fi
-    uv venv "$VENV_DIR" --python "$PYTHON_BIN"
+    # 通过 uv 安装指定版本 Python（不依赖系统 Python），再用它创建虚拟环境
+    # 使用代理下载 Python
+    HTTP_PROXY="http://192.168.0.120:7890" \
+    HTTPS_PROXY="http://192.168.0.120:7890" \
+        uv python install "$PYTHON_VERSION"
+    uv venv "$VENV_DIR" --python "$PYTHON_VERSION"
     echo "Done."
 else
     echo "[1/4] 虚拟环境已存在，跳过创建。"
@@ -61,7 +66,10 @@ fi
 # Step 2: 安装依赖
 echo "[2/4] 安装 Ray 和 algo_studio 依赖..."
 export PATH="$HOME/.local/bin:$PATH"
-uv pip install --python "$VENV_DIR/bin/python" ray python-dotenv psutil pynvml requests
+# 使用代理安装（国内访问 PyPI 可能需要代理）
+HTTP_PROXY="http://192.168.0.120:7890" \
+HTTPS_PROXY="http://192.168.0.120:7890" \
+    uv pip install --python "$VENV_DIR/bin/python" ray python-dotenv psutil pynvml requests
 
 # Step 3: 启动 Worker
 echo "[3/4] 启动 Ray Worker，连接到 $HEAD_IP:$RAY_HEAD_PORT..."

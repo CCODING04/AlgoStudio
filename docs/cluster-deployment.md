@@ -39,7 +39,7 @@
 每台 Worker 节点需要满足：
 
 1. **网络互通** — Worker 能访问 Head 节点的 6379 端口
-2. **Python 版本一致** — Worker 的 Python 版本需与 Head 节点一致（Head 查看：`~/.venv/bin/python --version`，通常为 Python 3.10.x）
+2. **Python 版本一致** — Worker 的 Python 版本需与 Head 节点一致（Head 查看：`~/.venv/bin/python --version`，通常为 Python 3.10.12）。脚本会自动通过 uv 安装正确版本。
 3. **GPU 驱动** — 如需 GPU 任务，需安装 nvidia-driver + nvidia-container-runtime
 4. **Ray** — Worker 通过脚本自动安装，不污染系统环境
 
