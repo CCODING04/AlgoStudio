@@ -7,9 +7,8 @@
 ```
 ┌─────────────────────────────────────────────────────┐
 │                    Head 节点                        │
-│              (平台主服务器，已运行)                   │
 │         IP: 192.168.0.126  Port: 6379              │
-│         运行: API 服务 + Web Console                 │
+│         运行: Ray Head + API 服务 + Web Console     │
 └─────────────────────────────────────────────────────┘
           ↕ 连接
 ┌─────────────────────────────────────────────────────┐
@@ -24,6 +23,17 @@
 └─────────────────────────────────────────────────────┘
 ```
 
+## 启动顺序（重要！）
+
+必须先启动 Ray Head 节点，再启动 API 服务，最后 Worker 才能加入。
+
+```
+1. Head 节点:  ray start --head --port=6379
+2. API 服务:   uvicorn ... (自动连接到 Ray 集群)
+3. Web Console: python -m algo_studio.web.app
+4. Worker 节点: bash scripts/join_cluster.sh <HEAD_IP>
+```
+
 ## 前置要求
 
 每台 Worker 节点需要满足：
@@ -33,9 +43,21 @@
 3. **GPU 驱动** — 如需 GPU 任务，需安装 nvidia-driver + nvidia-container-runtime
 4. **Ray** — Worker 通过脚本自动安装，不污染系统环境
 
-## Head 节点（已配置）
+## Head 节点（必须先启动）
 
-Head 节点已在平台部署时启动，运行以下命令查看状态：
+**必须先启动 Ray Head 节点，Worker 才能加入。**
+
+在 Head 节点上执行：
+
+```bash
+# 方式一：使用脚本（推荐）
+bash scripts/setup_ray_cluster.sh head
+
+# 方式二：直接启动
+ray start --head --port=6379 --object-store-memory=5368709120
+```
+
+启动后查看状态：
 
 ```bash
 ray status
