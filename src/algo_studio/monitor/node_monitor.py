@@ -4,13 +4,6 @@ import ray
 import psutil
 from typing import Optional, Dict, Any
 
-try:
-    import pynvml
-    pynvml.nvmlInit()
-    GPU_AVAILABLE = True
-except:
-    GPU_AVAILABLE = False
-
 
 @ray.remote
 class NodeMonitorActor:
@@ -59,30 +52,24 @@ class NodeMonitorActor:
         gpu_memory_used_gb = 0.0
         gpu_memory_total_gb = 0.0
 
-        # Try to initialize pynvml in case it failed at module import
-        _gpu_available = GPU_AVAILABLE
-        if not _gpu_available:
-            try:
-                pynvml.nvmlInit()
-                _gpu_available = True
-            except:
-                pass
-
-        if _gpu_available:
-            try:
-                gpu_count = pynvml.nvmlDeviceGetCount()
-                if gpu_count > 0:
-                    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-                    gpu_name = pynvml.nvmlDeviceGetName(handle)
-                    # GPU utilization (0-100%)
-                    utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
-                    gpu_utilization = int(utilization.gpu)
-                    # GPU memory (GB)
-                    memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                    gpu_memory_used_gb = round(memory_info.used / (1024**3), 1)
-                    gpu_memory_total_gb = round(memory_info.total / (1024**3), 1)
-            except:
-                pass
+        # Lazy import and init pynvml - avoids module-level state issues with Ray Actors
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            gpu_count = pynvml.nvmlDeviceGetCount()
+            if gpu_count > 0:
+                handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+                gpu_name = pynvml.nvmlDeviceGetName(handle)
+                # GPU utilization (0-100%)
+                utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                gpu_utilization = int(utilization.gpu)
+                # GPU memory (GB)
+                memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                gpu_memory_used_gb = round(memory_info.used / (1024**3), 1)
+                gpu_memory_total_gb = round(memory_info.total / (1024**3), 1)
+        except Exception:
+            # GPU not available or error - leave defaults (0/None)
+            pass
 
         return {
             "hostname": socket.gethostname(),
