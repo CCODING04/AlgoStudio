@@ -207,12 +207,29 @@ class RayClient:
         return nodes
 
     def submit_task(self, func, *args, **kwargs):
-        """提交任务到 Ray 集群"""
-        return func.options(
-            num_cpus=kwargs.get("num_cpus", 1),
-            num_gpus=kwargs.get("num_gpus", 0),
-            resources=kwargs.get("resources", {})
-        ).remote(*args)
+        """提交任务到 Ray 集群
+
+        Args:
+            func: Ray remote function
+            *args: positional args for the function
+            **kwargs:
+                - num_cpus: CPU count
+                - num_gpus: GPU count
+                - resources: custom resources dict
+                - node_ip: specific node IP to run on
+        """
+        node_ip = kwargs.pop("node_ip", None)
+        options = {
+            "num_cpus": kwargs.get("num_cpus", 1),
+            "num_gpus": kwargs.get("num_gpus", 0),
+            "resources": kwargs.get("resources", {}),
+        }
+
+        # Add node affinity if node_ip is specified
+        if node_ip:
+            options["resources"][f"node:{node_ip}"] = 0.001
+
+        return func.options(**options).remote(*args)
 
     def shutdown(self):
         """关闭 Ray 连接"""

@@ -16,7 +16,7 @@ def make_page():
             refresh_btn = gr.Button("刷新", variant="primary")
 
         tasks_table = gr.Dataframe(
-            headers=["task_id", "task_type", "algorithm_name", "algorithm_version", "status", "created_at", "assigned_node"],
+            headers=["task_id", "task_type", "algorithm_name", "algorithm_version", "status", "progress", "created_at", "assigned_node"],
             label="任务列表",
             interactive=False,
         )
@@ -34,6 +34,7 @@ def make_page():
                         t.get("algorithm_name", ""),
                         t.get("algorithm_version", ""),
                         t.get("status", ""),
+                        f"{t.get('progress', 0)}%",
                         str(t.get("created_at", "")),
                         t.get("assigned_node") or "",
                     ]

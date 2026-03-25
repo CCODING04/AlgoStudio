@@ -13,6 +13,16 @@ from typing import Any, Dict, List, Optional
 # The interfaces are documented in algorithm_interface_spec.md
 
 
+class NullProgressCallback:
+    """空进度回调，无需进度时使用"""
+
+    def update(self, current: int, total: int, description: str = ""):
+        pass
+
+    def set_description(self, description: str):
+        pass
+
+
 class TrainResult:
     def __init__(self, success: bool, model_path: str = None, metrics: Dict = None, error: str = None):
         self.success = success
@@ -74,8 +84,16 @@ class SimpleClassifier:
             self.model.fc = nn.Linear(num_ftrs, 10)
             self.model = self.model.to(self.device)
 
-    def train(self, data_path: str, config: dict) -> TrainResult:
-        """Train the classifier on CIFAR-10"""
+    def train(self, data_path: str, config: dict, progress_callback=None) -> TrainResult:
+        """Train the classifier on CIFAR-10
+
+        Args:
+            data_path: 数据集路径
+            config: 训练配置（epochs, batch_size, learning_rate）
+            progress_callback: 进度回调对象
+        """
+        progress = progress_callback or NullProgressCallback()
+
         try:
             epochs = config.get("epochs", 2)
             batch_size = config.get("batch_size", 64)
@@ -117,12 +135,16 @@ class SimpleClassifier:
                 testset, batch_size=batch_size, shuffle=False, num_workers=2
             )
 
+            # 计算总批次数
+            total_batches = len(trainloader) * epochs
+
             self._build_model()
             criterion = nn.CrossEntropyLoss()
             optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
             # Training loop
             self.model.train()
+            current_batch = 0
             for epoch in range(epochs):
                 running_loss = 0.0
                 correct = 0
@@ -141,11 +163,15 @@ class SimpleClassifier:
                     _, predicted = outputs.max(1)
                     total += labels.size(0)
                     correct += predicted.eq(labels).sum().item()
+                    current_batch += 1
 
-                    if i % 100 == 99:
-                        print(f'[{epoch + 1}, {i + 1}] loss: {running_loss / 100:.3f} '
-                              f'acc: {100. * correct / total:.3f}%')
-                        running_loss = 0.0
+                    # 每 100 个批次或最后一个批次更新进度
+                    if i % 100 == 99 or i == len(trainloader) - 1:
+                        progress.update(
+                            current_batch,
+                            total_batches,
+                            f"Epoch {epoch + 1}/{epochs} - acc: {100. * correct / total:.1f}%"
+                        )
 
             # Evaluate
             self.model.eval()
@@ -168,6 +194,8 @@ class SimpleClassifier:
                 'classes': self.classes,
                 'accuracy': accuracy
             }, model_path)
+
+            progress.update(total_batches, total_batches, "Training completed")
 
             return TrainResult(
                 success=True,

@@ -15,7 +15,11 @@ class TaskResponse(BaseModel):
     algorithm_version: str
     status: str
     created_at: str
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
     assigned_node: Optional[str] = None
+    error: Optional[str] = None
+    progress: Optional[int] = None  # 0-100
 
 class TaskListResponse(BaseModel):
     tasks: List[TaskResponse]

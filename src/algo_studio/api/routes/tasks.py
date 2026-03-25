@@ -33,7 +33,11 @@ async def create_task(request: TaskCreateRequest):
         algorithm_version=task.algorithm_version,
         status=task.status.value,
         created_at=task.created_at.isoformat(),
-        assigned_node=task.assigned_node
+        started_at=task.started_at.isoformat() if task.started_at else None,
+        completed_at=task.completed_at.isoformat() if task.completed_at else None,
+        assigned_node=task.assigned_node,
+        error=task.error,
+        progress=task.progress
     )
 
 
@@ -57,7 +61,11 @@ async def list_tasks(status: str | None = None):
                 algorithm_version=t.algorithm_version,
                 status=t.status.value,
                 created_at=t.created_at.isoformat(),
-                assigned_node=t.assigned_node
+                started_at=t.started_at.isoformat() if t.started_at else None,
+                completed_at=t.completed_at.isoformat() if t.completed_at else None,
+                assigned_node=t.assigned_node,
+                error=t.error,
+                progress=t.progress
             )
             for t in tasks
         ],
@@ -75,17 +83,21 @@ async def get_task(task_id: str):
     return TaskResponse(
         task_id=task.task_id,
         task_type=task.task_type.value,
-        algorithm_name=t.algorithm_name,
-        algorithm_version=t.algorithm_version,
-        status=t.status.value,
-        created_at=t.created_at.isoformat(),
-        assigned_node=t.assigned_node
+        algorithm_name=task.algorithm_name,
+        algorithm_version=task.algorithm_version,
+        status=task.status.value,
+        created_at=task.created_at.isoformat(),
+        started_at=task.started_at.isoformat() if task.started_at else None,
+        completed_at=task.completed_at.isoformat() if task.completed_at else None,
+        assigned_node=task.assigned_node,
+        error=task.error,
+        progress=task.progress
     )
 
 
 @router.post("/{task_id}/dispatch")
 async def dispatch_task(task_id: str):
-    """分发任务到 Ray 集群执行"""
+    """分发任务到 Ray 集群执行（异步模式，立即返回）"""
     task = task_manager.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
@@ -93,14 +105,26 @@ async def dispatch_task(task_id: str):
     if task.status != TaskStatus.PENDING:
         raise HTTPException(status_code=400, detail=f"Task already dispatched, status: {task.status.value}")
 
-    success = task_manager.dispatch_task(task_id, ray_client)
-    if not success:
-        raise HTTPException(status_code=503, detail="No available nodes or dispatch failed")
+    # 更新状态为 RUNNING（让客户端立即能看到状态变化）
+    task_manager.update_status(task_id, TaskStatus.RUNNING)
+
+    # 在后台线程中执行 Ray 任务（不阻塞 API）
+    import asyncio
+    asyncio.create_task(
+        asyncio.to_thread(task_manager.dispatch_task, task_id, ray_client)
+    )
 
     task = task_manager.get_task(task_id)
-    return {
-        "task_id": task.task_id,
-        "status": task.status.value,
-        "assigned_node": task.assigned_node,
-        "message": "Task dispatched successfully"
-    }
+    return TaskResponse(
+        task_id=task.task_id,
+        task_type=task.task_type.value,
+        algorithm_name=task.algorithm_name,
+        algorithm_version=task.algorithm_version,
+        status=task.status.value,
+        created_at=task.created_at.isoformat(),
+        started_at=task.started_at.isoformat() if task.started_at else None,
+        completed_at=task.completed_at.isoformat() if task.completed_at else None,
+        assigned_node=task.assigned_node,
+        error=task.error,
+        progress=task.progress
+    )

@@ -33,9 +33,10 @@
 
 ## 必须实现的方法
 
-### train(data_path: str, config: dict) -> TrainResult
+### train(data_path: str, config: dict, progress_callback=None) -> TrainResult
 - `data_path`: 训练数据集路径
 - `config`: 训练配置（epochs, batch_size 等）
+- `progress_callback`: 进度回调对象（可选，用于报告训练进度）
 - 返回训练结果和指标
 
 ### infer(inputs: list) -> InferenceResult
@@ -49,14 +50,50 @@
 ### get_metadata() -> AlgorithmMetadata
 - 返回算法元信息
 
+## 进度回调接口
+
+进度回调用于在训练过程中向调度系统报告进度，使 Web Console 可以实时显示训练状态。
+
+### ProgressCallback 接口
+```python
+class ProgressCallback:
+    """进度回调基类"""
+
+    def update(self, current: int, total: int, description: str = ""):
+        """更新进度
+
+        Args:
+            current: 当前进度值
+            total: 总进度值
+            description: 进度描述（如 "Epoch 3/10"）
+        """
+        raise NotImplementedError
+
+    def set_description(self, description: str):
+        """设置进度条描述"""
+        raise NotImplementedError
+```
+
+### NullProgressCallback（默认实现）
+当 `progress_callback=None` 时使用，不执行任何操作。
+
+### Ray 分布式进度回调
+在 Ray 集群中运行时使用，通过 Ray Actor 异步更新任务状态。
+
 ## 算法接口基类
 
 ```python
 class AlgorithmInterface:
     """算法接口基类，所有算法必须实现此接口"""
 
-    def train(self, data_path: str, config: dict) -> TrainResult:
-        """训练接口"""
+    def train(self, data_path: str, config: dict, progress_callback=None) -> TrainResult:
+        """训练接口
+
+        Args:
+            data_path: 数据集路径
+            config: 训练配置
+            progress_callback: 进度回调，算法内部应在适当时机调用更新进度
+        """
         raise NotImplementedError
 
     def infer(self, inputs: list) -> InferenceResult:

@@ -5,6 +5,59 @@ import uuid
 from datetime import datetime
 import ray
 
+
+@ray.remote
+class ProgressStore:
+    """Ray Actor，共享进度存储"""
+
+    def __init__(self):
+        self._progress: Dict[str, int] = {}
+
+    def update(self, task_id: str, current: int, total: int):
+        """更新进度"""
+        self._progress[task_id] = int((current / total) * 100) if total > 0 else 0
+
+    def get(self, task_id: str) -> int:
+        """获取进度"""
+        return self._progress.get(task_id, 0)
+
+
+# 全局进度存储 Actor
+_progress_store_actor = None
+_PROGRESS_STORE_NAME = "algo_studio_progress_store"
+
+
+def get_progress_store() -> "ProgressStore":
+    """获取或创建全局进度存储 Actor（使用固定名称确保跨进程获取同一实例）"""
+    global _progress_store_actor
+    if _progress_store_actor is None:
+        try:
+            _progress_store_actor = ray.get_actor(_PROGRESS_STORE_NAME, namespace="algo_studio")
+        except Exception:
+            # Actor 不存在，创建新的
+            _progress_store_actor = ProgressStore.options(
+                name=_PROGRESS_STORE_NAME,
+                namespace="algo_studio",
+                lifetime="detached"
+            ).remote()
+    return _progress_store_actor
+
+
+@ray.remote
+class ProgressReporter:
+    """Ray Actor，用于向 TaskManager 报告进度"""
+
+    def update_progress(self, task_id: str, current: int, total: int, description: str = ""):
+        """更新任务进度"""
+        print(f"[ProgressReporter] update_progress: task_id={task_id}, current={current}, total={total}, desc={description}")
+        progress_store = get_progress_store()
+        progress_store.update.remote(task_id, current, total)
+
+    def get_progress(self, task_id: str) -> int:
+        """获取任务进度"""
+        progress_store = get_progress_store()
+        return ray.get(progress_store.get.remote(task_id))
+
 class TaskType(Enum):
     TRAIN = "train"
     INFER = "infer"
@@ -31,6 +84,7 @@ class Task:
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     assigned_node: Optional[str] = None
+    progress: int = 0  # 0-100
 
     @staticmethod
     def create(task_type: TaskType, algorithm_name: str, algorithm_version: str, config: Dict) -> "Task":
@@ -61,8 +115,11 @@ class TaskManager:
         return task
 
     def get_task(self, task_id: str) -> Task | None:
-        """获取任务"""
-        return self._tasks.get(task_id)
+        """获取任务（自动同步进度）"""
+        task = self._tasks.get(task_id)
+        if task:
+            self.sync_progress(task_id)
+        return task
 
     def list_tasks(self, status: TaskStatus | None = None) -> list[Task]:
         """列出任务"""
@@ -70,7 +127,7 @@ class TaskManager:
             return [t for t in self._tasks.values() if t.status == status]
         return list(self._tasks.values())
 
-    def update_status(self, task_id: str, status: TaskStatus, result: dict | None = None, error: str | None = None):
+    def update_status(self, task_id: str, status: TaskStatus, result: dict | None = None, error: str | None = None, progress: int | None = None):
         """更新任务状态"""
         task = self._tasks.get(task_id)
         if task:
@@ -81,8 +138,24 @@ class TaskManager:
                 task.completed_at = datetime.now()
             if result:
                 task.result = result
-            if error:
+            if error is not None:
                 task.error = error
+            if progress is not None:
+                task.progress = progress
+
+    def update_progress(self, task_id: str, progress: int, description: str = ""):
+        """更新任务进度（由 ProgressReporter Actor 调用）"""
+        task = self._tasks.get(task_id)
+        if task:
+            task.progress = progress
+            # 可选：存储 description 用于显示
+
+    def sync_progress(self, task_id: str):
+        """从共享存储同步进度"""
+        task = self._tasks.get(task_id)
+        if task:
+            progress_store = get_progress_store()
+            task.progress = ray.get(progress_store.get.remote(task_id))
 
     def dispatch_task(self, task_id: str, ray_client: "RayClient") -> bool:
         """将任务分发到 Ray 集群执行并等待结果"""
@@ -103,12 +176,16 @@ class TaskManager:
 
         # 选择第一个空闲节点
         selected_node = idle_nodes[0]
-        task.assigned_node = selected_node.node_id
+        # 优先使用 hostname，其次 ip，最后是 node_id
+        task.assigned_node = selected_node.hostname or selected_node.ip or selected_node.node_id
 
         # 更新状态为运行中
         self.update_status(task_id, TaskStatus.RUNNING)
 
-        # 根据 task_type 提交到 Ray
+        # 创建 ProgressReporter Actor
+        progress_reporter = ProgressReporter.remote()
+
+        # 根据 task_type 提交到 Ray（使用 node_ip 确保在目标节点运行）
         if task.task_type == TaskType.TRAIN:
             result_ref = ray_client.submit_task(
                 run_training,
@@ -116,7 +193,9 @@ class TaskManager:
                 task.algorithm_name,
                 task.algorithm_version,
                 task.config,
-                num_gpus=1
+                progress_reporter,
+                num_gpus=1,
+                node_ip=selected_node.ip
             )
         elif task.task_type == TaskType.INFER:
             result_ref = ray_client.submit_task(
@@ -125,7 +204,9 @@ class TaskManager:
                 task.algorithm_name,
                 task.algorithm_version,
                 task.config,
-                num_gpus=0
+                progress_reporter,
+                num_gpus=0,
+                node_ip=selected_node.ip
             )
         elif task.task_type == TaskType.VERIFY:
             result_ref = ray_client.submit_task(
@@ -134,7 +215,9 @@ class TaskManager:
                 task.algorithm_name,
                 task.algorithm_version,
                 task.config,
-                num_gpus=0
+                progress_reporter,
+                num_gpus=0,
+                node_ip=selected_node.ip
             )
         else:
             return False
@@ -191,7 +274,8 @@ def _load_algorithm(algo_name: str, algo_version: str):
     spec.loader.exec_module(module)
 
     # 查找算法类（有 train, infer, verify, get_metadata 方法的类，排除数据类）
-    exclude_names = {'TrainResult', 'InferenceResult', 'VerificationResult', 'AlgorithmMetadata'}
+    exclude_names = {'TrainResult', 'InferenceResult', 'VerificationResult', 'AlgorithmMetadata',
+                      'NullProgressCallback', 'RayProgressCallback', 'ProgressReporter'}
     for attr_name in dir(module):
         if attr_name in exclude_names:
             continue
@@ -208,13 +292,40 @@ def _load_algorithm(algo_name: str, algo_version: str):
     raise ValueError(f"No AlgorithmInterface implementation found in {algo_path}")
 
 
+class RayProgressCallback:
+    """Ray 分布式进度回调，通过 ProgressReporter Actor 更新进度"""
+
+    def __init__(self, task_id: str, reporter):
+        self.task_id = task_id
+        self.reporter = reporter
+
+    def update(self, current: int, total: int, description: str = ""):
+        """更新进度"""
+        self.reporter.update_progress.remote(self.task_id, current, total, description)
+
+    def set_description(self, description: str):
+        """设置描述（暂不支持）"""
+        pass
+
+
 @ray.remote
-def run_training(task_id: str, algo_name: str, algo_version: str, config: dict) -> dict:
+def run_training(task_id: str, algo_name: str, algo_version: str, config: dict, progress_reporter=None) -> dict:
     """Ray 训练任务"""
     try:
         algo = _load_algorithm(algo_name, algo_version)
         data_path = config.get("data_path", "")
-        result = algo.train(data_path, config)
+
+        # 创建进度回调
+        if progress_reporter:
+            progress_callback = RayProgressCallback(task_id, progress_reporter)
+        else:
+            # 使用空回调
+            class NullCallback:
+                def update(self, current, total, description=""): pass
+                def set_description(self, description): pass
+            progress_callback = NullCallback()
+
+        result = algo.train(data_path, config, progress_callback)
 
         return {
             "task_id": task_id,
@@ -229,7 +340,7 @@ def run_training(task_id: str, algo_name: str, algo_version: str, config: dict) 
 
 
 @ray.remote
-def run_inference(task_id: str, algo_name: str, algo_version: str, config: dict) -> dict:
+def run_inference(task_id: str, algo_name: str, algo_version: str, config: dict, progress_reporter=None) -> dict:
     """Ray 推理任务"""
     try:
         algo = _load_algorithm(algo_name, algo_version)
@@ -249,7 +360,7 @@ def run_inference(task_id: str, algo_name: str, algo_version: str, config: dict)
 
 
 @ray.remote
-def run_verification(task_id: str, algo_name: str, algo_version: str, config: dict) -> dict:
+def run_verification(task_id: str, algo_name: str, algo_version: str, config: dict, progress_reporter=None) -> dict:
     """Ray 验证任务"""
     try:
         algo = _load_algorithm(algo_name, algo_version)
