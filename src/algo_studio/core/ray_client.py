@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, List, Optional
 import ray
 from algo_studio.monitor.node_monitor import NodeMonitorActor
@@ -32,6 +32,15 @@ class NodeStatus:
     disk_total_gb: float
     swap_used_gb: float = 0.0
     swap_total_gb: float = 0.0
+    # Optional fields for detailed info from NodeMonitorActor
+    cpu_model: Optional[str] = None
+    cpu_physical_cores: Optional[int] = None
+    cpu_freq_current_mhz: Optional[float] = None
+    gpu_utilization: Optional[int] = None
+    gpu_memory_used_gb: Optional[float] = None
+    gpu_memory_total_gb: Optional[float] = None
+    gpu_name: Optional[str] = None
+    hostname: Optional[str] = None
 
     @property
     def cpu_available(self) -> int:
@@ -104,6 +113,14 @@ class RayClient:
                 disk_total_gb = host_info.disk_total_gb
                 swap_used_gb = host_info.swap_used_gb
                 swap_total_gb = host_info.swap_total_gb
+                cpu_model = host_info.cpu_model
+                cpu_physical_cores = host_info.cpu_physical_cores
+                cpu_freq_current_mhz = host_info.cpu_freq_current_mhz
+                gpu_utilization = host_info.gpu_utilization
+                gpu_memory_used_gb = host_info.gpu_memory_used_gb
+                gpu_memory_total_gb = host_info.gpu_memory_total_gb
+                gpu_name = host_info.gpu_name
+                hostname = host_info.hostname
             else:
                 # Remote node - use NodeMonitorActor
                 try:
@@ -134,6 +151,14 @@ class RayClient:
                     disk_total_gb = host_info.get("disk_total_gb", 0.0)
                     swap_used_gb = host_info.get("swap_used_gb", 0.0)
                     swap_total_gb = host_info.get("swap_total_gb", 0.0)
+                    cpu_model = host_info.get("cpu_model")
+                    cpu_physical_cores = host_info.get("cpu_physical_cores")
+                    cpu_freq_current_mhz = host_info.get("cpu_freq_current_mhz")
+                    gpu_utilization = host_info.get("gpu_utilization")
+                    gpu_memory_used_gb = host_info.get("gpu_memory_used_gb")
+                    gpu_memory_total_gb = host_info.get("gpu_memory_total_gb")
+                    gpu_name = host_info.get("gpu_name")
+                    hostname = host_info.get("hostname")
                 except Exception:
                     # Actor call failed - return minimal info
                     cpu_used = int(resources.get("CPU", 0))
@@ -146,6 +171,14 @@ class RayClient:
                     disk_total_gb = 0.0
                     swap_used_gb = 0.0
                     swap_total_gb = 0.0
+                    cpu_model = None
+                    cpu_physical_cores = None
+                    cpu_freq_current_mhz = None
+                    gpu_utilization = None
+                    gpu_memory_used_gb = None
+                    gpu_memory_total_gb = None
+                    gpu_name = None
+                    hostname = None
 
             status = NodeStatus(
                 node_id=node["NodeID"],
@@ -160,7 +193,15 @@ class RayClient:
                 disk_used_gb=disk_used_gb,
                 disk_total_gb=disk_total_gb,
                 swap_used_gb=swap_used_gb,
-                swap_total_gb=swap_total_gb
+                swap_total_gb=swap_total_gb,
+                cpu_model=cpu_model,
+                cpu_physical_cores=cpu_physical_cores,
+                cpu_freq_current_mhz=cpu_freq_current_mhz,
+                gpu_utilization=gpu_utilization,
+                gpu_memory_used_gb=gpu_memory_used_gb,
+                gpu_memory_total_gb=gpu_memory_total_gb,
+                gpu_name=gpu_name,
+                hostname=hostname
             )
             nodes.append(status)
         return nodes
