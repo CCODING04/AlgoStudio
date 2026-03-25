@@ -47,34 +47,33 @@ async def get_host_status():
                 "ip": n.ip,
                 "status": n.status,
                 "is_local": is_local,
-                "hostname": local_info.hostname if is_local else None,
+                "hostname": local_info.hostname if is_local else (n.hostname if n.hostname else None),
                 "resources": {
                     "cpu": {
                         "total": n.cpu_total if not is_local else local_info.cpu_count,
                         "used": n.cpu_used if not is_local else local_info.cpu_used,
-                        "physical_cores": local_info.cpu_physical_cores if is_local else None,
-                        "model": local_info.cpu_model if is_local else None,
-                        "freq_mhz": local_info.cpu_freq_current_mhz if is_local else None,
+                        "physical_cores": local_info.cpu_physical_cores if is_local else n.cpu_physical_cores,
+                        "model": local_info.cpu_model if is_local else n.cpu_model,
+                        "freq_mhz": local_info.cpu_freq_current_mhz if is_local else n.cpu_freq_current_mhz,
                     },
                     "gpu": {
                         "total": n.gpu_total if not is_local else local_info.gpu_count,
-                        "utilization": local_info.gpu_utilization if is_local else None,
-                        "memory_used": f"{local_info.gpu_memory_used_gb}Gi" if is_local else None,
-                        "memory_total": f"{local_info.gpu_memory_total_gb}Gi" if is_local else None,
-                        "name": local_info.gpu_name if is_local else None,
+                        "utilization": local_info.gpu_utilization if is_local else n.gpu_utilization,
+                        "memory_used": f"{local_info.gpu_memory_used_gb}Gi" if is_local else (f"{n.gpu_memory_used_gb}Gi" if n.gpu_memory_used_gb else None),
+                        "memory_total": f"{local_info.gpu_memory_total_gb}Gi" if is_local else (f"{n.gpu_memory_total_gb}Gi" if n.gpu_memory_total_gb else None),
+                        "name": local_info.gpu_name if is_local else n.gpu_name,
                     },
-                    # 远端节点的 memory/disk/swap 无法从 Ray 获取详细数据，显示 null
                     "memory": {
-                        "total": f"{local_info.memory_total_gb}Gi" if is_local else None,
-                        "used": f"{local_info.memory_used_gb}Gi" if is_local else None,
+                        "total": f"{local_info.memory_total_gb}Gi" if is_local else (f"{n.memory_total_gb}Gi" if n.memory_total_gb else None),
+                        "used": f"{local_info.memory_used_gb}Gi" if is_local else (f"{n.memory_used_gb}Gi" if n.memory_used_gb else None),
                     },
                     "disk": {
-                        "total": f"{local_info.disk_total_gb}G" if is_local else None,
-                        "used": f"{local_info.disk_used_gb}G" if is_local else None,
+                        "total": f"{local_info.disk_total_gb}G" if is_local else (f"{n.disk_total_gb}G" if n.disk_total_gb else None),
+                        "used": f"{local_info.disk_used_gb}G" if is_local else (f"{n.disk_used_gb}G" if n.disk_used_gb else None),
                     },
                     "swap": {
-                        "total": f"{local_info.swap_total_gb}Gi" if is_local else None,
-                        "used": f"{local_info.swap_used_gb}Gi" if is_local else None,
+                        "total": f"{local_info.swap_total_gb}Gi" if is_local else (f"{n.swap_total_gb}Gi" if n.swap_total_gb else None),
+                        "used": f"{local_info.swap_used_gb}Gi" if is_local else (f"{n.swap_used_gb}Gi" if n.swap_used_gb else None),
                     }
                 }
             }

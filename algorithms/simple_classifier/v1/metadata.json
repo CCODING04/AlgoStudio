@@ -1,0 +1,20 @@
+{
+    "name": "simple_classifier",
+    "version": "v1",
+    "description": "Simple image classifier using ResNet18 on CIFAR-10 dataset",
+    "task_type": "classification",
+    "deployment": "cloud",
+    "framework": "pytorch",
+    "expected_fps": 100,
+    "input_types": ["image"],
+    "output_types": ["classification"],
+    "config_schema": {
+        "epochs": {"type": "int", "default": 2, "description": "Number of training epochs"},
+        "batch_size": {"type": "int", "default": 64, "description": "Batch size"},
+        "learning_rate": {"type": "float", "default": 0.001, "description": "Learning rate"}
+    },
+    "data_requirements": {
+        "train": "Path to training dataset (uses CIFAR-10 if not provided)",
+        "verify": "Path to test dataset (uses CIFAR-10 test if not provided)"
+    }
+}

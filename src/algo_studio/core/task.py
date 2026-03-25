@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 import uuid
 from datetime import datetime
 import ray
+from algo_studio.core.algorithm import AlgorithmInterface
 
 class TaskType(Enum):
     TRAIN = "train"
@@ -141,19 +142,111 @@ class TaskManager:
 
 
 # 训练/推理/验证的 Ray 任务函数
+import os
+import sys
+
+# 算法基础路径 - 支持环境变量配置
+# 默认使用 ~/Code/Dev/AlgoStudio/algorithms
+import pathlib
+_ALGO_STUDIO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent.parent
+ALGORITHM_BASE_PATH = os.environ.get("ALGORITHM_BASE_PATH", str(_ALGO_STUDIO_ROOT / "algorithms"))
+
+
+def _load_algorithm(algo_name: str, algo_version: str):
+    """动态加载算法实例"""
+    import importlib.util
+    import os
+
+    algo_path = os.path.join(ALGORITHM_BASE_PATH, algo_name, algo_version)
+
+    # 添加算法父目录到 sys.path，以便导入 algo_studio
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(algo_path))))
+
+    module_file = None
+
+    # 查找算法实现文件
+    for candidate in ["classifier.py", "detector.py", "model.py", "algorithm.py"]:
+        candidate_path = os.path.join(algo_path, candidate)
+        if os.path.exists(candidate_path):
+            module_file = candidate_path
+            break
+
+    if not module_file:
+        raise FileNotFoundError(f"Algorithm implementation not found in {algo_path}")
+
+    # 动态加载模块
+    spec = importlib.util.spec_from_file_location(f"{algo_name}.{algo_version}", module_file)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    # 查找算法类（继承自 AlgorithmInterface）
+    for attr_name in dir(module):
+        attr = getattr(module, attr_name)
+        if (isinstance(attr, type) and
+            issubclass(attr, AlgorithmInterface) and
+            attr != AlgorithmInterface):
+            return attr()
+
+    raise ValueError(f"No AlgorithmInterface implementation found in {algo_path}")
+
+    raise ValueError(f"No AlgorithmInterface implementation found in {algo_path}")
+
+
 @ray.remote
 def run_training(task_id: str, algo_name: str, algo_version: str, config: dict) -> dict:
     """Ray 训练任务"""
-    return {"task_id": task_id, "status": "completed", "metrics": {"mAP": 0.0}}
+    try:
+        algo = _load_algorithm(algo_name, algo_version)
+        data_path = config.get("data_path", "")
+        result = algo.train(data_path, config)
+
+        return {
+            "task_id": task_id,
+            "status": "completed" if result.success else "failed",
+            "success": result.success,
+            "model_path": result.model_path,
+            "metrics": result.metrics,
+            "error": result.error
+        }
+    except Exception as e:
+        return {"task_id": task_id, "status": "failed", "success": False, "error": str(e)}
 
 
 @ray.remote
 def run_inference(task_id: str, algo_name: str, algo_version: str, config: dict) -> dict:
     """Ray 推理任务"""
-    return {"task_id": task_id, "status": "completed", "results": []}
+    try:
+        algo = _load_algorithm(algo_name, algo_version)
+        inputs = config.get("inputs", [])
+        result = algo.infer(inputs)
+
+        return {
+            "task_id": task_id,
+            "status": "completed" if result.success else "failed",
+            "success": result.success,
+            "outputs": result.outputs,
+            "latency_ms": result.latency_ms,
+            "error": result.error
+        }
+    except Exception as e:
+        return {"task_id": task_id, "status": "failed", "success": False, "error": str(e)}
 
 
 @ray.remote
 def run_verification(task_id: str, algo_name: str, algo_version: str, config: dict) -> dict:
     """Ray 验证任务"""
-    return {"task_id": task_id, "status": "completed", "passed": True}
+    try:
+        algo = _load_algorithm(algo_name, algo_version)
+        test_data = config.get("test_data", "")
+        result = algo.verify(test_data)
+
+        return {
+            "task_id": task_id,
+            "status": "completed" if result.success else "failed",
+            "success": result.success,
+            "passed": result.passed,
+            "metrics": result.metrics,
+            "details": result.details
+        }
+    except Exception as e:
+        return {"task_id": task_id, "status": "failed", "success": False, "error": str(e)}

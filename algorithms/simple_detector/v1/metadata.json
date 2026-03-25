@@ -1,0 +1,20 @@
+{
+    "name": "simple_detector",
+    "version": "v1",
+    "description": "Object detector using Faster R-CNN (pre-trained on COCO)",
+    "task_type": "object_detection",
+    "deployment": "cloud",
+    "framework": "pytorch",
+    "expected_fps": 30,
+    "input_types": ["image"],
+    "output_types": ["bbox", "class_labels", "confidence_scores"],
+    "config_schema": {
+        "confidence_threshold": {"type": "float", "default": 0.5, "description": "Detection confidence threshold"},
+        "batch_size": {"type": "int", "default": 4, "description": "Batch size"}
+    },
+    "data_requirements": {
+        "train": "Path to training dataset (uses COCO pre-trained if not provided)",
+        "verify": "Path to test images (runs verification with COCO weights if not provided)"
+    },
+    "coco_classes": true
+}
