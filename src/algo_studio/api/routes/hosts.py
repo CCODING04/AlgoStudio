@@ -63,17 +63,18 @@ async def get_host_status():
                         "memory_total": f"{local_info.gpu_memory_total_gb}Gi" if is_local else None,
                         "name": local_info.gpu_name if is_local else None,
                     },
+                    # 远端节点的 memory/disk/swap 无法从 Ray 获取详细数据，显示 null
                     "memory": {
-                        "total": f"{n.memory_total_gb}Gi" if not is_local else f"{local_info.memory_total_gb}Gi",
-                        "used": f"{n.memory_used_gb}Gi" if not is_local else f"{local_info.memory_used_gb}Gi",
+                        "total": f"{local_info.memory_total_gb}Gi" if is_local else None,
+                        "used": f"{local_info.memory_used_gb}Gi" if is_local else None,
                     },
                     "disk": {
-                        "total": f"{n.disk_total_gb}G" if not is_local else f"{local_info.disk_total_gb}G",
-                        "used": f"{n.disk_used_gb}G" if not is_local else f"{local_info.disk_used_gb}G",
+                        "total": f"{local_info.disk_total_gb}G" if is_local else None,
+                        "used": f"{local_info.disk_used_gb}G" if is_local else None,
                     },
                     "swap": {
-                        "total": f"{n.swap_total_gb}Gi" if not is_local else f"{local_info.swap_total_gb}Gi",
-                        "used": f"{n.swap_used_gb}Gi" if not is_local else f"{local_info.swap_used_gb}Gi",
+                        "total": f"{local_info.swap_total_gb}Gi" if is_local else None,
+                        "used": f"{local_info.swap_used_gb}Gi" if is_local else None,
                     }
                 }
             }

@@ -138,6 +138,54 @@ def _render_host_card(hostname: str, ip: str, status: str,
         </div>
         '''
 
+    # Memory 区块
+    if not mem_total:
+        mem_section = f'''
+        <div style="font-size:13px;margin-bottom:8px">
+            <strong>Memory</strong>
+            <div style="font-size:12px;color:#9ca3af;margin:2px 0">{unknown_label}</div>
+        </div>
+        '''
+    else:
+        mem_section = f'''
+        <div style="font-size:13px;margin-bottom:8px">
+            <strong>Memory</strong>
+            {_bar(mem_used, mem_total, unit="Gi")}
+        </div>
+        '''
+
+    # Disk 区块
+    if not disk_total:
+        disk_section = f'''
+        <div style="font-size:13px;margin-bottom:8px">
+            <strong>Disk</strong>
+            <div style="font-size:12px;color:#9ca3af;margin:2px 0">{unknown_label}</div>
+        </div>
+        '''
+    else:
+        disk_section = f'''
+        <div style="font-size:13px;margin-bottom:8px">
+            <strong>Disk</strong>
+            {_bar(disk_used, disk_total, unit="G")}
+        </div>
+        '''
+
+    # Swap 区块
+    if not swap_total:
+        swap_section = f'''
+        <div style="font-size:13px">
+            <strong>Swap</strong>
+            <div style="font-size:12px;color:#9ca3af;margin:2px 0">{unknown_label}</div>
+        </div>
+        '''
+    else:
+        swap_section = f'''
+        <div style="font-size:13px">
+            <strong>Swap</strong>
+            {_bar(swap_used, swap_total, unit="Gi")}
+        </div>
+        '''
+
     return f"""
     <div style="{border_style}border-radius:8px;padding:16px;margin:8px 0;background:#fafafa">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -147,18 +195,9 @@ def _render_host_card(hostname: str, ip: str, status: str,
         <div style="font-size:12px;color:#6b7280;margin-bottom:12px">IP: {ip_esc}</div>
         {gpu_section}
         {cpu_section}
-        <div style="font-size:13px;margin-bottom:8px">
-            <strong>Memory</strong>
-            {_bar(mem_used, mem_total, unit="Gi")}
-        </div>
-        <div style="font-size:13px;margin-bottom:8px">
-            <strong>Disk</strong>
-            {_bar(disk_used, disk_total, unit="G")}
-        </div>
-        <div style="font-size:13px">
-            <strong>Swap</strong>
-            {_bar(swap_used, swap_total, unit="Gi")}
-        </div>
+        {mem_section}
+        {disk_section}
+        {swap_section}
     </div>
     """
 
