@@ -14,10 +14,42 @@ def _color_pct(pct: float) -> str:
         return "#ef4444"   # red
 
 
+def _parse_size(s: str) -> float:
+    """Parse size string like '100Gi', '500G', '1.5T' to float."""
+    s = str(s).strip()
+    for sufx in ["Ti", "Gi", "Mi", "Ki", "T", "G", "M", "K"]:
+        if s.endswith(sufx):
+            try:
+                return float(s[:-len(sufx)])
+            except ValueError:
+                return 0.0
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
+
+
+def _bar(used: float, total: float, unit: str = "") -> str:
+    """Render a progress bar HTML snippet."""
+    pct = used / total * 100 if total > 0 else 0
+    color = _color_pct(pct)
+    used_str = f"{used:.1f}" if isinstance(used, float) else str(used)
+    total_str = f"{total:.1f}" if isinstance(total, float) else str(total)
+    return (
+        f'<div style="margin:4px 0">'
+        f'<div style="display:flex;justify-content:space-between;font-size:13px">'
+        f'<span>{used_str}{unit} / {total_str}{unit}</span>'
+        f'<span>{pct:.0f}%</span></div>'
+        f'<div style="background:#e5e7eb;border-radius:4px;height:8px;margin-top:2px">'
+        f'<div style="width:{pct:.0f}%;background:{color};height:8px;border-radius:4px"></div></div>'
+        f'</div>'
+    )
+
+
 def _render_host_card(hostname: str, ip: str, status: str, resources: dict, is_local: bool = False) -> str:
     """Render one host as an HTML card string."""
-    hostname = html.escape(str(hostname))
-    ip = html.escape(str(ip))
+    hostname_esc = html.escape(str(hostname))
+    ip_esc = html.escape(str(ip))
     label = "(本机)" if is_local else ""
     status_icon = "🟢" if status == "online" else "🔴"
 
@@ -27,35 +59,21 @@ def _render_host_card(hostname: str, ip: str, status: str, resources: dict, is_l
     disk = resources.get("disk", {})
     swap = resources.get("swap", {})
 
-    def bar(used: float, total: float, unit: str = "") -> str:
-        pct = used / total * 100 if total > 0 else 0
-        color = _color_pct(pct)
-        used_str = f"{used:.1f}" if isinstance(used, float) else str(used)
-        total_str = f"{total:.1f}" if isinstance(total, float) else str(total)
+    gpu_name = html.escape(str(gpu.get("name", "N/A")))
+    gpu_total = float(gpu.get("total", 0) or 0)
+    gpu_used = float(gpu.get("used", 0) or 0)
 
-        def _parse_size(s: str) -> float:
-            """Parse size string like '100Gi', '500G', '1.5T' to float."""
-            s = str(s).strip()
-            for unit in ["Ti", "Gi", "Mi", "Ki", "T", "G", "M", "K"]:
-                if s.endswith(unit):
-                    try:
-                        return float(s[:-len(unit)])
-                    except ValueError:
-                        return 0.0
-            try:
-                return float(s)
-            except ValueError:
-                return 0.0
+    cpu_total = float(cpu.get("total", 0) or 0)
+    cpu_used = float(cpu.get("used", 0) or 0)
 
-        return (
-            f'<div style="margin:4px 0">'
-            f'<div style="display:flex;justify-content:space-between;font-size:13px">'
-            f'<span>{used_str}{unit} / {total_str}{unit}</span>'
-            f'<span>{pct:.0f}%</span></div>'
-            f'<div style="background:#e5e7eb;border-radius:4px;height:8px;margin-top:2px">'
-            f'<div style="width:{pct:.0f}%;background:{color};height:8px;border-radius:4px"></div></div>'
-            f'</div>'
-        )
+    mem_total = _parse_size(memory.get("total", "0Gi"))
+    mem_used = _parse_size(memory.get("used", "0Gi"))
+
+    disk_total = _parse_size(disk.get("total", "0G"))
+    disk_used = _parse_size(disk.get("used", "0G"))
+
+    swap_total = _parse_size(swap.get("total", "0Gi"))
+    swap_used = _parse_size(swap.get("used", "0Gi"))
 
     gpu_name = html.escape(str(gpu.get("name", "N/A")))
     gpu_total = gpu.get("total", 0) or 0
@@ -76,29 +94,29 @@ def _render_host_card(hostname: str, ip: str, status: str, resources: dict, is_l
     return f"""
     <div style="border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin:8px 0;background:#fafafa">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <strong style="font-size:15px">{hostname} {label}</strong>
+            <strong style="font-size:15px">{hostname_esc} {label}</strong>
             <span>{status_icon} {status.capitalize()}</span>
         </div>
-        <div style="font-size:12px;color:#6b7280;margin-bottom:12px">IP: {ip}</div>
+        <div style="font-size:12px;color:#6b7280;margin-bottom:12px">IP: {ip_esc}</div>
         <div style="font-size:13px;margin-bottom:8px">
             <strong>GPU ({gpu_name})</strong>
-            {bar(gpu_used, gpu_total)}
+            {_bar(gpu_used, gpu_total)}
         </div>
         <div style="font-size:13px;margin-bottom:8px">
             <strong>CPU</strong>
-            {bar(cpu_used, cpu_total)}
+            {_bar(cpu_used, cpu_total)}
         </div>
         <div style="font-size:13px;margin-bottom:8px">
             <strong>Memory</strong>
-            {bar(_parse_size(mem_used_str), _parse_size(mem_str), unit="Gi")}
+            {_bar(mem_used, mem_total, unit="Gi")}
         </div>
         <div style="font-size:13px;margin-bottom:8px">
             <strong>Disk</strong>
-            {bar(_parse_size(disk_used_str), _parse_size(disk_str), unit="G")}
+            {_bar(disk_used, disk_total, unit="G")}
         </div>
         <div style="font-size:13px">
             <strong>Swap</strong>
-            {bar(_parse_size(swap_used_str), _parse_size(swap_str), unit="Gi")}
+            {_bar(swap_used, swap_total, unit="Gi")}
         </div>
     </div>
     """
