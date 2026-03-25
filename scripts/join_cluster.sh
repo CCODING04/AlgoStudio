@@ -60,7 +60,8 @@ uv pip install --python "$VENV_DIR/bin/python" ray python-dotenv psutil pynvml r
 
 # Step 3: 启动 Worker
 echo "[3/4] 启动 Ray Worker，连接到 $HEAD_IP:$RAY_HEAD_PORT..."
-"$VENV_DIR/bin/ray" start --address="$HEAD_IP:$RAY_HEAD_PORT" --object-store-memory=5GB
+# object-store-memory 单位为 bytes，5GB = 5368709120
+"$VENV_DIR/bin/ray" start --address="$HEAD_IP:$RAY_HEAD_PORT" --object-store-memory=5368709120
 
 # Step 4: 验证连接
 echo "[4/4] 验证集群连接..."

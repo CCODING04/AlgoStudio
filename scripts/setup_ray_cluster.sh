@@ -5,7 +5,7 @@
 set -e
 
 RAY_HEAD_PORT=6379
-OBJECT_STORE_MEMORY=5GB
+OBJECT_STORE_MEMORY=5368709120  # 5GB in bytes
 
 usage() {
     echo "Usage: $0 {head|worker|stop}"
