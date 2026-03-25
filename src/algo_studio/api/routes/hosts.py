@@ -45,7 +45,9 @@ async def get_host_status():
                     },
                     "gpu": {
                         "total": n.gpu_total if not is_local else local_info.gpu_count,
-                        "used": n.gpu_used if not is_local else local_info.gpu_used,
+                        "utilization": local_info.gpu_utilization if is_local else 0,
+                        "memory_used": f"{local_info.gpu_memory_used_gb}Gi" if is_local else "0Gi",
+                        "memory_total": f"{local_info.gpu_memory_total_gb}Gi" if is_local else "0Gi",
                         "name": local_info.gpu_name if is_local else None,
                     },
                     "memory": {
@@ -69,6 +71,7 @@ async def get_host_status():
         }
     except Exception as e:
         # 如果 Ray 未初始化，返回仅本地状态
+        local_info = local_monitor.get_host_info()
         local_dict = local_monitor.to_dict()
         return {
             "cluster_nodes": [{
@@ -79,7 +82,13 @@ async def get_host_status():
                 "hostname": local_info.hostname,
                 "resources": {
                     "cpu": {"total": local_info.cpu_count, "used": local_info.cpu_used},
-                    "gpu": {"total": local_info.gpu_count, "used": local_info.gpu_used, "name": local_info.gpu_name},
+                    "gpu": {
+                        "total": local_info.gpu_count,
+                        "utilization": local_info.gpu_utilization,
+                        "memory_used": f"{local_info.gpu_memory_used_gb}Gi",
+                        "memory_total": f"{local_info.gpu_memory_total_gb}Gi",
+                        "name": local_info.gpu_name,
+                    },
                     "memory": {"total": f"{local_info.memory_total_gb}Gi", "used": f"{local_info.memory_used_gb}Gi"},
                     "disk": {"total": f"{local_info.disk_total_gb}G", "used": f"{local_info.disk_used_gb}G"},
                     "swap": {"total": f"{local_info.swap_total_gb}Gi", "used": f"{local_info.swap_used_gb}Gi"}

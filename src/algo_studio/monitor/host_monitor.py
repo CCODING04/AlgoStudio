@@ -21,7 +21,9 @@ class HostInfo:
     memory_used_gb: float
     gpu_name: Optional[str]
     gpu_count: int
-    gpu_used: int
+    gpu_utilization: int  # 0-100 percent
+    gpu_memory_used_gb: float
+    gpu_memory_total_gb: float
     disk_total_gb: float
     disk_used_gb: float
     swap_total_gb: float
@@ -37,7 +39,7 @@ class HostInfo:
 
     @property
     def gpu_available(self) -> int:
-        return self.gpu_count - self.gpu_used
+        return self.gpu_count - 1 if self.gpu_utilization > 0 else self.gpu_count
 
 class HostMonitor:
     """主机状态监控"""
@@ -61,7 +63,9 @@ class HostMonitor:
 
         gpu_name = None
         gpu_count = 0
-        gpu_used = 0
+        gpu_utilization = 0
+        gpu_memory_used_gb = 0.0
+        gpu_memory_total_gb = 0.0
 
         if GPU_AVAILABLE:
             try:
@@ -69,8 +73,13 @@ class HostMonitor:
                 if gpu_count > 0:
                     handle = pynvml.nvmlDeviceGetHandleByIndex(0)
                     gpu_name = pynvml.nvmlDeviceGetName(handle)
+                    # GPU 利用率（0-100%）
+                    utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                    gpu_utilization = int(utilization.gpu)
+                    # GPU 显存（GB）
                     memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                    gpu_used = int(memory_info.used / (1024**3))
+                    gpu_memory_used_gb = round(memory_info.used / (1024**3), 1)
+                    gpu_memory_total_gb = round(memory_info.total / (1024**3), 1)
             except:
                 pass
 
@@ -83,7 +92,9 @@ class HostMonitor:
             memory_used_gb=round(memory_used_gb, 1),
             gpu_name=gpu_name,
             gpu_count=gpu_count,
-            gpu_used=gpu_used,
+            gpu_utilization=gpu_utilization,
+            gpu_memory_used_gb=gpu_memory_used_gb,
+            gpu_memory_total_gb=gpu_memory_total_gb,
             disk_total_gb=round(disk_total_gb, 1),
             disk_used_gb=round(disk_used_gb, 1),
             swap_total_gb=round(swap_total_gb, 1),
@@ -99,7 +110,13 @@ class HostMonitor:
             "status": "online",
             "resources": {
                 "cpu": {"total": info.cpu_count, "used": info.cpu_used},
-                "gpu": {"total": info.gpu_count, "used": info.gpu_used, "name": info.gpu_name},
+                "gpu": {
+                    "total": info.gpu_count,
+                    "utilization": info.gpu_utilization,
+                    "memory_used": f"{info.gpu_memory_used_gb}Gi",
+                    "memory_total": f"{info.gpu_memory_total_gb}Gi",
+                    "name": info.gpu_name,
+                },
                 "memory": {"total": f"{info.memory_total_gb}Gi", "used": f"{info.memory_used_gb}Gi"},
                 "disk": {"total": f"{info.disk_total_gb}G", "used": f"{info.disk_used_gb}G"},
                 "swap": {"total": f"{info.swap_total_gb}Gi", "used": f"{info.swap_used_gb}Gi"}

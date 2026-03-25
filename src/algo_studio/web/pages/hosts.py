@@ -67,7 +67,9 @@ def _render_host_card(hostname: str, ip: str, status: str,
 
     gpu_name = html.escape(str(gpu.get("name", ""))) if gpu.get("name") else "无"
     gpu_total = float(gpu.get("total", 0) or 0)
-    gpu_used = float(gpu.get("used", 0) or 0)
+    gpu_utilization = float(gpu.get("utilization", 0) or 0)
+    gpu_mem_used = _parse_size(gpu.get("memory_used", "0Gi"))
+    gpu_mem_total = _parse_size(gpu.get("memory_total", "0Gi"))
 
     cpu_total = float(cpu.get("total", 0) or 0)
     cpu_used = float(cpu.get("used", 0) or 0)
@@ -90,7 +92,10 @@ def _render_host_card(hostname: str, ip: str, status: str,
         <div style="font-size:12px;color:#6b7280;margin-bottom:12px">IP: {ip_esc}</div>
         <div style="font-size:13px;margin-bottom:8px">
             <strong>GPU {f'({gpu_name})' if gpu_name != '无' else ''}</strong>
-            {_bar(gpu_used, gpu_total)}
+            <div style="font-size:12px;color:#6b7280;margin:2px 0 4px">利用率</div>
+            {_bar(gpu_utilization, 100, unit="%")}
+            <div style="font-size:12px;color:#6b7280;margin:2px 0 4px">显存</div>
+            {_bar(gpu_mem_used, gpu_mem_total, unit="Gi")}
         </div>
         <div style="font-size:13px;margin-bottom:8px">
             <strong>CPU</strong>
