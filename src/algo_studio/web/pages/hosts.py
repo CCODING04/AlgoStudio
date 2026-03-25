@@ -67,37 +67,76 @@ def _render_host_card(hostname: str, ip: str, status: str,
 
     gpu_name = html.escape(str(gpu.get("name", ""))) if gpu.get("name") else "无"
     gpu_total = float(gpu.get("total", 0) or 0)
-    gpu_utilization = float(gpu.get("utilization", 0) or 0)
-    gpu_mem_used = _parse_size(gpu.get("memory_used", "0Gi"))
-    gpu_mem_total = _parse_size(gpu.get("memory_total", "0Gi"))
+    gpu_utilization = gpu.get("utilization")
+    gpu_mem_used = gpu.get("memory_used")
+    gpu_mem_total = gpu.get("memory_total")
 
     cpu_total = float(cpu.get("total", 0) or 0)
     cpu_used = float(cpu.get("used", 0) or 0)
-    cpu_model = html.escape(str(cpu.get("model", ""))) if cpu.get("model") else "未知"
+    cpu_model = html.escape(str(cpu.get("model", ""))) if cpu.get("model") else None
     cpu_physical = cpu.get("physical_cores")
     cpu_freq = cpu.get("freq_mhz")
 
-    mem_total = _parse_size(memory.get("total", "0Gi"))
-    mem_used = _parse_size(memory.get("used", "0Gi"))
+    # 远端节点显示 "获取失败"
+    unknown_label = '<span style="color:#9ca3af;font-size:12px">（获取失败）</span>'
 
-    disk_total = _parse_size(disk.get("total", "0G"))
-    disk_used = _parse_size(disk.get("used", "0G"))
+    mem_total = _parse_size(memory.get("total", "0Gi")) if memory.get("total") else 0
+    mem_used = _parse_size(memory.get("used", "0Gi")) if memory.get("used") else 0
 
-    swap_total = _parse_size(swap.get("total", "0Gi"))
-    swap_used = _parse_size(swap.get("used", "0Gi"))
+    disk_total = _parse_size(disk.get("total", "0G")) if disk.get("total") else 0
+    disk_used = _parse_size(disk.get("used", "0G")) if disk.get("used") else 0
+
+    swap_total = _parse_size(swap.get("total", "0Gi")) if swap.get("total") else 0
+    swap_used = _parse_size(swap.get("used", "0Gi")) if swap.get("used") else 0
 
     # CPU 信息行
     cpu_info_parts = []
-    if cpu_model and cpu_model != "未知":
+    if cpu_model:
         cpu_info_parts.append(f"{cpu_model}")
     if cpu_physical:
-        threads = int(cpu_total)
+        threads = int(cpu_total) if cpu_total else 0
         cpu_info_parts.append(f"{cpu_physical}P / {threads}T")
     elif cpu_total:
         cpu_info_parts.append(f"{int(cpu_total)} 线程")
     if cpu_freq:
         cpu_info_parts.append(f"{cpu_freq:.0f} MHz")
     cpu_info_str = " · ".join(cpu_info_parts) if cpu_info_parts else ""
+
+    # GPU 区块
+    if gpu_name == "无" or gpu_utilization is None:
+        gpu_section = f'''
+        <div style="font-size:13px;margin-bottom:8px">
+            <strong>GPU {f"({gpu_name})" if gpu_name != "无" else ""}</strong>
+            <div style="font-size:12px;color:#9ca3af;margin:2px 0">{unknown_label}</div>
+        </div>
+        '''
+    else:
+        gpu_section = f'''
+        <div style="font-size:13px;margin-bottom:8px">
+            <strong>GPU {f'({gpu_name})' if gpu_name != "无" else ""}</strong>
+            <div style="font-size:12px;color:#6b7280;margin:2px 0 4px">利用率</div>
+            {_bar(float(gpu_utilization), 100, unit="%")}
+            <div style="font-size:12px;color:#6b7280;margin:2px 0 4px">显存</div>
+            {_bar(_parse_size(gpu_mem_used), _parse_size(gpu_mem_total), unit="Gi")}
+        </div>
+        '''
+
+    # CPU 区块
+    if not cpu_info_str and not cpu_total:
+        cpu_section = f'''
+        <div style="font-size:13px;margin-bottom:8px">
+            <strong>CPU</strong>
+            <div style="font-size:12px;color:#9ca3af;margin:2px 0">{unknown_label}</div>
+        </div>
+        '''
+    else:
+        cpu_section = f'''
+        <div style="font-size:13px;margin-bottom:8px">
+            <strong>CPU</strong>
+            {f'<div style="font-size:12px;color:#6b7280;margin:2px 0 4px">{cpu_info_str}</div>' if cpu_info_str else ""}
+            {_bar(cpu_used, cpu_total)}
+        </div>
+        '''
 
     return f"""
     <div style="{border_style}border-radius:8px;padding:16px;margin:8px 0;background:#fafafa">
@@ -106,18 +145,8 @@ def _render_host_card(hostname: str, ip: str, status: str,
             <span>{status_icon} {status_display}</span>
         </div>
         <div style="font-size:12px;color:#6b7280;margin-bottom:12px">IP: {ip_esc}</div>
-        <div style="font-size:13px;margin-bottom:8px">
-            <strong>GPU {f'({gpu_name})' if gpu_name != '无' else ''}</strong>
-            <div style="font-size:12px;color:#6b7280;margin:2px 0 4px">利用率</div>
-            {_bar(gpu_utilization, 100, unit="%")}
-            <div style="font-size:12px;color:#6b7280;margin:2px 0 4px">显存</div>
-            {_bar(gpu_mem_used, gpu_mem_total, unit="Gi")}
-        </div>
-        <div style="font-size:13px;margin-bottom:8px">
-            <strong>CPU</strong>
-            {f'<div style="font-size:12px;color:#6b7280;margin:2px 0 4px">{cpu_info_str}</div>' if cpu_info_str else ''}
-            {_bar(cpu_used, cpu_total)}
-        </div>
+        {gpu_section}
+        {cpu_section}
         <div style="font-size:13px;margin-bottom:8px">
             <strong>Memory</strong>
             {_bar(mem_used, mem_total, unit="Gi")}

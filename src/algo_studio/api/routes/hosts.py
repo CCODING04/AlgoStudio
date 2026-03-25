@@ -27,10 +27,20 @@ async def get_host_status():
         # 包含 127.0.0.1 和 LAN IP
 
         # 将 local_host 的详细信息合并到对应的 cluster node
+        # 先按 IP 去重（保留第一个），避免同一节点多次注册
+        seen_ips = {}
+        for n in nodes:
+            if n.ip in seen_ips:
+                # 已有记录：保留 alive 的，丢弃 offline 的
+                existing = seen_ips[n.ip]
+                if n.status == "offline" and existing.status != "offline":
+                    continue
+            seen_ips[n.ip] = n
+
         cluster_nodes = []
-        for idx, n in enumerate(nodes):
-            # 判断是否是本机（head node）：Ray 第一个节点为 head，也在本机
-            is_local = (idx == 0) or (n.ip in local_ips)
+        for n in seen_ips.values():
+            # 只有 IP 匹配本地 IP 的才是本机
+            is_local = n.ip in local_ips
 
             node = {
                 "node_id": n.node_id,
@@ -48,9 +58,9 @@ async def get_host_status():
                     },
                     "gpu": {
                         "total": n.gpu_total if not is_local else local_info.gpu_count,
-                        "utilization": local_info.gpu_utilization if is_local else 0,
-                        "memory_used": f"{local_info.gpu_memory_used_gb}Gi" if is_local else "0Gi",
-                        "memory_total": f"{local_info.gpu_memory_total_gb}Gi" if is_local else "0Gi",
+                        "utilization": local_info.gpu_utilization if is_local else None,
+                        "memory_used": f"{local_info.gpu_memory_used_gb}Gi" if is_local else None,
+                        "memory_total": f"{local_info.gpu_memory_total_gb}Gi" if is_local else None,
                         "name": local_info.gpu_name if is_local else None,
                     },
                     "memory": {
