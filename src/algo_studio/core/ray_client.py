@@ -3,6 +3,12 @@ from typing import Any, List, Optional
 import ray
 from algo_studio.monitor.node_monitor import NodeMonitorActor
 
+# ActorNotFoundError was added in Ray 2.9.0
+try:
+    from ray.exceptions import ActorNotFoundError
+except ImportError:
+    ActorNotFoundError = ValueError  # Fallback for older Ray versions
+
 # GPU 可用性检测
 try:
     import pynvml
@@ -104,7 +110,7 @@ class RayClient:
                     actor_name = f"node_monitor_{node_ip}"
                     try:
                         actor = ray.get_actor(actor_name, namespace="algo_studio")
-                    except Exception:
+                    except ActorNotFoundError:
                         # Actor doesn't exist, create it
                         actor = NodeMonitorActor.options(
                             name=actor_name,
@@ -112,6 +118,9 @@ class RayClient:
                             lifetime="detached",
                             resources={f"node:{node_ip}": 0.001}
                         ).remote()
+                    except Exception:
+                        # Other errors - skip this node
+                        continue
 
                     host_info = ray.get(actor.get_host_info.remote(), timeout=5)
                     cpu_used = host_info.get("cpu_used", 0)
@@ -130,7 +139,7 @@ class RayClient:
                     cpu_used = int(resources.get("CPU", 0))
                     cpu_total = 0
                     gpu_used = int(resources.get("GPU", 0))
-                    gpu_total = 0
+                    gpu_total = int(resources.get("GPU", 0))
                     memory_used_gb = 0.0
                     memory_total_gb = 0.0
                     disk_used_gb = 0.0
