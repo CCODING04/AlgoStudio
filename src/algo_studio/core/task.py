@@ -85,7 +85,7 @@ class TaskManager:
                 task.error = error
 
     def dispatch_task(self, task_id: str, ray_client: "RayClient") -> bool:
-        """将任务分发到 Ray 集群执行"""
+        """将任务分发到 Ray 集群执行并等待结果"""
         task = self._tasks.get(task_id)
         if not task:
             return False
@@ -110,7 +110,7 @@ class TaskManager:
 
         # 根据 task_type 提交到 Ray
         if task.task_type == TaskType.TRAIN:
-            ray_client.submit_task(
+            result_ref = ray_client.submit_task(
                 run_training,
                 task.task_id,
                 task.algorithm_name,
@@ -119,7 +119,7 @@ class TaskManager:
                 num_gpus=1
             )
         elif task.task_type == TaskType.INFER:
-            ray_client.submit_task(
+            result_ref = ray_client.submit_task(
                 run_inference,
                 task.task_id,
                 task.algorithm_name,
@@ -128,7 +128,7 @@ class TaskManager:
                 num_gpus=0
             )
         elif task.task_type == TaskType.VERIFY:
-            ray_client.submit_task(
+            result_ref = ray_client.submit_task(
                 run_verification,
                 task.task_id,
                 task.algorithm_name,
@@ -136,6 +136,18 @@ class TaskManager:
                 task.config,
                 num_gpus=0
             )
+        else:
+            return False
+
+        # 等待 Ray 任务完成并更新状态
+        try:
+            result = ray.get(result_ref)
+            if result.get("status") == "completed":
+                self.update_status(task_id, TaskStatus.COMPLETED, result=result)
+            else:
+                self.update_status(task_id, TaskStatus.FAILED, error=result.get("error"))
+        except Exception as e:
+            self.update_status(task_id, TaskStatus.FAILED, error=str(e))
 
         return True
 
