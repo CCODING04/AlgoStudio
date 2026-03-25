@@ -73,6 +73,9 @@ def _render_host_card(hostname: str, ip: str, status: str,
 
     cpu_total = float(cpu.get("total", 0) or 0)
     cpu_used = float(cpu.get("used", 0) or 0)
+    cpu_model = html.escape(str(cpu.get("model", ""))) if cpu.get("model") else "未知"
+    cpu_physical = cpu.get("physical_cores")
+    cpu_freq = cpu.get("freq_mhz")
 
     mem_total = _parse_size(memory.get("total", "0Gi"))
     mem_used = _parse_size(memory.get("used", "0Gi"))
@@ -82,6 +85,19 @@ def _render_host_card(hostname: str, ip: str, status: str,
 
     swap_total = _parse_size(swap.get("total", "0Gi"))
     swap_used = _parse_size(swap.get("used", "0Gi"))
+
+    # CPU 信息行
+    cpu_info_parts = []
+    if cpu_model and cpu_model != "未知":
+        cpu_info_parts.append(f"{cpu_model}")
+    if cpu_physical:
+        threads = int(cpu_total)
+        cpu_info_parts.append(f"{cpu_physical}P / {threads}T")
+    elif cpu_total:
+        cpu_info_parts.append(f"{int(cpu_total)} 线程")
+    if cpu_freq:
+        cpu_info_parts.append(f"{cpu_freq:.0f} MHz")
+    cpu_info_str = " · ".join(cpu_info_parts) if cpu_info_parts else ""
 
     return f"""
     <div style="{border_style}border-radius:8px;padding:16px;margin:8px 0;background:#fafafa">
@@ -99,6 +115,7 @@ def _render_host_card(hostname: str, ip: str, status: str,
         </div>
         <div style="font-size:13px;margin-bottom:8px">
             <strong>CPU</strong>
+            {f'<div style="font-size:12px;color:#6b7280;margin:2px 0 4px">{cpu_info_str}</div>' if cpu_info_str else ''}
             {_bar(cpu_used, cpu_total)}
         </div>
         <div style="font-size:13px;margin-bottom:8px">

@@ -42,6 +42,9 @@ async def get_host_status():
                     "cpu": {
                         "total": n.cpu_total if not is_local else local_info.cpu_count,
                         "used": n.cpu_used if not is_local else local_info.cpu_used,
+                        "physical_cores": local_info.cpu_physical_cores if is_local else None,
+                        "model": local_info.cpu_model if is_local else None,
+                        "freq_mhz": local_info.cpu_freq_current_mhz if is_local else None,
                     },
                     "gpu": {
                         "total": n.gpu_total if not is_local else local_info.gpu_count,
@@ -81,7 +84,13 @@ async def get_host_status():
                 "is_local": True,
                 "hostname": local_info.hostname,
                 "resources": {
-                    "cpu": {"total": local_info.cpu_count, "used": local_info.cpu_used},
+                    "cpu": {
+                        "total": local_info.cpu_count,
+                        "used": local_info.cpu_used,
+                        "physical_cores": local_info.cpu_physical_cores,
+                        "model": local_info.cpu_model,
+                        "freq_mhz": local_info.cpu_freq_current_mhz,
+                    },
                     "gpu": {
                         "total": local_info.gpu_count,
                         "utilization": local_info.gpu_utilization,

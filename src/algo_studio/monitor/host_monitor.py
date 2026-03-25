@@ -15,8 +15,11 @@ except:
 class HostInfo:
     hostname: str
     ip: str
-    cpu_count: int
+    cpu_count: int  # logical cores (threads)
+    cpu_physical_cores: int  # physical cores (P-cores)
     cpu_used: int
+    cpu_model: str
+    cpu_freq_current_mhz: float
     memory_total_gb: float
     memory_used_gb: float
     gpu_name: Optional[str]
@@ -46,8 +49,21 @@ class HostMonitor:
 
     def get_host_info(self) -> HostInfo:
         """获取本机状态信息"""
-        cpu_count = psutil.cpu_count()
+        cpu_count = psutil.cpu_count()  # logical cores (threads)
+        cpu_physical_cores = psutil.cpu_count(logical=False)  # physical cores
         cpu_used = psutil.cpu_percent(interval=1)
+
+        # CPU 型号和频率
+        cpu_model = "Unknown"
+        try:
+            with open("/proc/cpuinfo") as f:
+                for line in f:
+                    if "model name" in line:
+                        cpu_model = line.split(":", 1)[1].strip()
+                        break
+        except:
+            pass
+        cpu_freq = psutil.cpu_freq()  # current freq in MHz
 
         memory = psutil.virtual_memory()
         memory_total_gb = memory.total / (1024**3)
@@ -87,7 +103,10 @@ class HostMonitor:
             hostname=socket.gethostname(),
             ip=socket.gethostbyname(socket.gethostname()),
             cpu_count=cpu_count,
+            cpu_physical_cores=cpu_physical_cores,
             cpu_used=int(cpu_used * cpu_count / 100),
+            cpu_model=cpu_model,
+            cpu_freq_current_mhz=round(cpu_freq.current, 0) if cpu_freq else 0.0,
             memory_total_gb=round(memory_total_gb, 1),
             memory_used_gb=round(memory_used_gb, 1),
             gpu_name=gpu_name,
@@ -109,7 +128,13 @@ class HostMonitor:
             "ip": info.ip,
             "status": "online",
             "resources": {
-                "cpu": {"total": info.cpu_count, "used": info.cpu_used},
+                "cpu": {
+                    "total": info.cpu_count,
+                    "used": info.cpu_used,
+                    "physical_cores": info.cpu_physical_cores,
+                    "model": info.cpu_model,
+                    "freq_mhz": info.cpu_freq_current_mhz,
+                },
                 "gpu": {
                     "total": info.gpu_count,
                     "utilization": info.gpu_utilization,
