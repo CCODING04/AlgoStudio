@@ -18,7 +18,7 @@ class NodeMonitorActor:
 
     def get_node_ip(self) -> str:
         """Return the IP address of this node using Ray Worker's node_ip_address"""
-        return ray.worker.global_worker.node_ip_address
+        return ray._private.worker.global_worker.node_ip_address
 
     def get_host_info(self) -> Dict[str, Any]:
         """Collect and return local system information as a dict"""
