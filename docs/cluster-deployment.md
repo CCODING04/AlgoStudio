@@ -28,11 +28,17 @@
 必须先启动 Ray Head 节点，再启动 API 服务，最后 Worker 才能加入。
 
 ```
-1. Head 节点:  ray start --head --port=6379
-2. API 服务:   uvicorn ... (自动连接到 Ray 集群)
-3. Web Console: python -m algo_studio.web.app
+1. Head 节点:  ray start --head --port=6379 --object-store-memory=5368709120
+2. API 服务:   cd /home/admin02/Code/Dev/AlgoStudio && PYTHONPATH=src .venv/bin/python -m uvicorn algo_studio.api.main:app --host 0.0.0.0 --port 8000
+3. Web Console: 在另一个终端执行 python -m algo_studio.web.app
 4. Worker 节点: bash scripts/join_cluster.sh <HEAD_IP>
 ```
+
+**API 服务启动说明：**
+- 必须设置 `PYTHONPATH=src` 使 algo_studio 模块可导入
+- 使用 `.venv/bin/python` 确保 Python 版本为 3.10.12
+- 如果报错 `Task | None` 类型语法错误，说明 Python 版本不对（需要 3.10+，不能用 3.8）
+- Head 节点必须使用 Ray 2.54.0 版本（与 Worker 一致）：`~/.venv/bin/ray --version`
 
 ## 前置要求
 
@@ -47,14 +53,17 @@
 
 **必须先启动 Ray Head 节点，Worker 才能加入。**
 
+**重要：Head 节点和 Worker 节点必须使用相同版本的 Ray（2.54.0）和 Python（3.10.12）。**
+
 在 Head 节点上执行：
 
 ```bash
-# 方式一：使用脚本（推荐）
-bash scripts/setup_ray_cluster.sh head
+# 查看当前 Ray 版本（确保为 2.54.0）
+~/.venv/bin/ray --version
 
-# 方式二：直接启动
-ray start --head --port=6379 --object-store-memory=5368709120
+# 如果版本不对或需要重新启动：
+ray stop  # 先停止旧实例
+~/.venv/bin/ray start --head --port=6379 --object-store-memory=5368709120
 ```
 
 启动后查看状态：
@@ -199,7 +208,19 @@ rm -rf .venv-ray    # 删除隔离环境（可选）
 
 ## Web Console 监控
 
-所有节点加入集群后，在平台 Web Console（http://localhost:7860）中打开「主机监控」页面：
+Web Console 需要在 API 服务启动后再启动。
+
+**启动 Web Console：**
+
+```bash
+# 在另一个终端执行（API 服务需先启动）
+cd /home/admin02/Code/Dev/AlgoStudio
+PYTHONPATH=src .venv/bin/python -m algo_studio.web.app
+```
+
+Web Console 启动后访问 http://localhost:7860
+
+在平台 Web Console（http://localhost:7860）中打开「主机监控」页面：
 
 - **宿主机 (Head)** — 蓝色边框标识，显示 Head 节点详情
 - **其他节点** — 白色边框，显示各 Worker 资源状态
