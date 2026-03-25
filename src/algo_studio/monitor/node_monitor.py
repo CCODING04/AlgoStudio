@@ -59,7 +59,16 @@ class NodeMonitorActor:
         gpu_memory_used_gb = 0.0
         gpu_memory_total_gb = 0.0
 
-        if GPU_AVAILABLE:
+        # Try to initialize pynvml in case it failed at module import
+        _gpu_available = GPU_AVAILABLE
+        if not _gpu_available:
+            try:
+                pynvml.nvmlInit()
+                _gpu_available = True
+            except:
+                pass
+
+        if _gpu_available:
             try:
                 gpu_count = pynvml.nvmlDeviceGetCount()
                 if gpu_count > 0:
