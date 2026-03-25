@@ -28,11 +28,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$PROJECT_DIR/.venv-ray"
 
+# Python 版本需与 Head 节点一致（Head 通过 .venv/bin/python --version 查看）
+# 可通过 PYTHON_BIN 环境变量指定，如：PYTHON_BIN=/usr/bin/python3.10 bash join_cluster.sh <HEAD_IP>
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.10 2>/dev/null || command -v python3 2>/dev/null || echo "python3")}"
+
 echo "=========================================="
 echo " AlgoStudio Ray Worker 快速部署"
 echo "=========================================="
 echo "Head IP: $HEAD_IP"
 echo "虚拟环境: $VENV_DIR"
+echo "Python:  $($PYTHON_BIN --version 2>&1)"
 echo ""
 
 # Step 1: 创建隔离虚拟环境（用 uv，不污染系统）
@@ -47,7 +52,7 @@ if [ ! -d "$VENV_DIR" ]; then
         # 让当前 shell 加载 uv
         export PATH="$HOME/.local/bin:$PATH"
     fi
-    uv venv "$VENV_DIR" --python 3.10
+    uv venv "$VENV_DIR" --python "$PYTHON_BIN"
     echo "Done."
 else
     echo "[1/4] 虚拟环境已存在，跳过创建。"

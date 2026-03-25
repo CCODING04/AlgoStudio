@@ -39,7 +39,7 @@
 每台 Worker 节点需要满足：
 
 1. **网络互通** — Worker 能访问 Head 节点的 6379 端口
-2. **Python 3.10+** — 建议使用系统自带或 conda 管理
+2. **Python 版本一致** — Worker 的 Python 版本需与 Head 节点一致（Head 查看：`~/.venv/bin/python --version`，通常为 Python 3.10.x）
 3. **GPU 驱动** — 如需 GPU 任务，需安装 nvidia-driver + nvidia-container-runtime
 4. **Ray** — Worker 通过脚本自动安装，不污染系统环境
 
@@ -152,15 +152,27 @@ ray status
 
 ## 常见问题
 
-### Q: Worker 启动失败，提示 "Connection refused"
+### Q: 提示 "RuntimeError: Version mismatch: The cluster was started with Ray: X.X.X Python: 3.10.X"
 
-Head 节点未启动或网络不通。先在 Head 节点确认 Ray 服务正常运行：
+Worker 的 Python 版本与 Head 节点不一致。Head 节点通常使用 Python 3.10.12（或 3.10.x），确保 Worker 也使用相同版本：
+
+```bash
+# 查看 Head 节点 Python 版本
+~/.venv/bin/python --version
+
+# 在 Worker 节点指定相同版本
+PYTHON_BIN=/usr/bin/python3.10 bash scripts/join_cluster.sh 192.168.0.126
+```
+
+### Q: 提示 "Failed to connect to GCS at address 192.168.0.126:6379"
+
+Head 节点 Ray 未启动或网络不通。先在 Head 节点执行：
 
 ```bash
 ray status
 ```
 
-确认防火墙允许 6379 端口入站。
+确认 Head 节点 Ray 已启动（`ray start --head`）且防火墙允许 6379 端口。
 
 ### Q: 不想用 uv，能用标准 Python 吗？
 
