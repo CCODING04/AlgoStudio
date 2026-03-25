@@ -58,9 +58,9 @@ class RayClient:
     def __init__(self, head_address: Optional[str] = None):
         self.head_address = head_address
         if head_address:
-            ray.init(address=head_address)
+            ray.init(address=head_address, ignore_reinit_error=True)
         else:
-            ray.init()
+            ray.init(ignore_reinit_error=True)
 
     def get_nodes(self) -> List[NodeStatus]:
         """获取所有节点状态"""
