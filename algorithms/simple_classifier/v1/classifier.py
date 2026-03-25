@@ -7,18 +7,46 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 from torch import nn
-from typing import Any
+from typing import Any, Dict, List, Optional
 
-from algo_studio.core.algorithm import (
-    AlgorithmInterface,
-    TrainResult,
-    InferenceResult,
-    VerificationResult,
-    AlgorithmMetadata
-)
+# Use duck typing instead of import to avoid algo_studio dependency on workers
+# The interfaces are documented in algorithm_interface_spec.md
 
 
-class SimpleClassifier(AlgorithmInterface):
+class TrainResult:
+    def __init__(self, success: bool, model_path: str = None, metrics: Dict = None, error: str = None):
+        self.success = success
+        self.model_path = model_path
+        self.metrics = metrics or {}
+        self.error = error
+
+
+class InferenceResult:
+    def __init__(self, success: bool, outputs: List = None, latency_ms: float = None, error: str = None):
+        self.success = success
+        self.outputs = outputs or []
+        self.latency_ms = latency_ms
+        self.error = error
+
+
+class VerificationResult:
+    def __init__(self, success: bool, passed: bool, metrics: Dict = None, details: str = None):
+        self.success = success
+        self.passed = passed
+        self.metrics = metrics or {}
+        self.details = details
+
+
+class AlgorithmMetadata:
+    def __init__(self, name: str, version: str, task_type: str, deployment: str, expected_fps: int = None):
+        self.name = name
+        self.version = version
+        self.task_type = task_type
+        self.deployment = deployment
+        self.expected_fps = expected_fps
+
+
+class SimpleClassifier:
     """Simple image classifier using ResNet18 on CIFAR-10"""
 
     def __init__(self):

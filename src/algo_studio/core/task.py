@@ -4,7 +4,6 @@ from typing import Any, Dict, Optional
 import uuid
 from datetime import datetime
 import ray
-from algo_studio.core.algorithm import AlgorithmInterface
 
 class TaskType(Enum):
     TRAIN = "train"
@@ -159,8 +158,8 @@ def _load_algorithm(algo_name: str, algo_version: str):
 
     algo_path = os.path.join(ALGORITHM_BASE_PATH, algo_name, algo_version)
 
-    # 添加算法父目录到 sys.path，以便导入 algo_studio
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(algo_path))))
+    # 添加算法目录到 sys.path
+    sys.path.insert(0, algo_path)
 
     module_file = None
 
@@ -179,15 +178,20 @@ def _load_algorithm(algo_name: str, algo_version: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    # 查找算法类（继承自 AlgorithmInterface）
+    # 查找算法类（有 train, infer, verify, get_metadata 方法的类，排除数据类）
+    exclude_names = {'TrainResult', 'InferenceResult', 'VerificationResult', 'AlgorithmMetadata'}
     for attr_name in dir(module):
+        if attr_name in exclude_names:
+            continue
         attr = getattr(module, attr_name)
         if (isinstance(attr, type) and
-            issubclass(attr, AlgorithmInterface) and
-            attr != AlgorithmInterface):
+            callable(getattr(attr, 'train', None)) and
+            callable(getattr(attr, 'infer', None)) and
+            callable(getattr(attr, 'verify', None)) and
+            callable(getattr(attr, 'get_metadata', None))):
             return attr()
 
-    raise ValueError(f"No AlgorithmInterface implementation found in {algo_path}")
+    raise ValueError(f"No algorithm implementation found in {algo_path}")
 
     raise ValueError(f"No AlgorithmInterface implementation found in {algo_path}")
 
