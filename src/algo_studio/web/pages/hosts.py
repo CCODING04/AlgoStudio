@@ -46,20 +46,26 @@ def _bar(used: float, total: float, unit: str = "") -> str:
     )
 
 
-def _render_host_card(hostname: str, ip: str, status: str, resources: dict, is_local: bool = False) -> str:
+def _render_host_card(hostname: str, ip: str, status: str,
+                      gpu: dict, cpu: dict, memory: dict,
+                      disk: dict, swap: dict,
+                      is_local: bool = False) -> str:
     """Render one host as an HTML card string."""
-    hostname_esc = html.escape(str(hostname))
+    hostname_esc = html.escape(str(hostname)) if hostname else ip
     ip_esc = html.escape(str(ip))
-    label = "(本机)" if is_local else ""
-    status_icon = "🟢" if status == "online" else "🔴"
 
-    gpu = resources.get("gpu", {})
-    cpu = resources.get("cpu", {})
-    memory = resources.get("memory", {})
-    disk = resources.get("disk", {})
-    swap = resources.get("swap", {})
+    if is_local:
+        label = "宿主机 (Head)"
+        border_color = "#3b82f6"  # blue for head node
+        border_style = f"border:2px solid {border_color};"
+    else:
+        label = ""
+        border_style = "border:1px solid #e5e7eb;"
 
-    gpu_name = html.escape(str(gpu.get("name", "N/A")))
+    status_icon = "🟢" if status == "online" or status == "idle" else "🔴"
+    status_display = "Online" if status == "idle" else status.capitalize()
+
+    gpu_name = html.escape(str(gpu.get("name", ""))) if gpu.get("name") else "无"
     gpu_total = float(gpu.get("total", 0) or 0)
     gpu_used = float(gpu.get("used", 0) or 0)
 
@@ -75,31 +81,15 @@ def _render_host_card(hostname: str, ip: str, status: str, resources: dict, is_l
     swap_total = _parse_size(swap.get("total", "0Gi"))
     swap_used = _parse_size(swap.get("used", "0Gi"))
 
-    gpu_name = html.escape(str(gpu.get("name", "N/A")))
-    gpu_total = gpu.get("total", 0) or 0
-    gpu_used = gpu.get("used", 0) or 0
-
-    cpu_total = cpu.get("total", 0) or 0
-    cpu_used = cpu.get("used", 0) or 0
-
-    mem_str = memory.get("total", "0Gi")
-    mem_used_str = memory.get("used", "0Gi")
-
-    disk_str = disk.get("total", "0G")
-    disk_used_str = disk.get("used", "0G")
-
-    swap_str = swap.get("total", "0Gi")
-    swap_used_str = swap.get("used", "0Gi")
-
     return f"""
-    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin:8px 0;background:#fafafa">
+    <div style="{border_style}border-radius:8px;padding:16px;margin:8px 0;background:#fafafa">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <strong style="font-size:15px">{hostname_esc} {label}</strong>
-            <span>{status_icon} {status.capitalize()}</span>
+            <span>{status_icon} {status_display}</span>
         </div>
         <div style="font-size:12px;color:#6b7280;margin-bottom:12px">IP: {ip_esc}</div>
         <div style="font-size:13px;margin-bottom:8px">
-            <strong>GPU ({gpu_name})</strong>
+            <strong>GPU {f'({gpu_name})' if gpu_name != '无' else ''}</strong>
             {_bar(gpu_used, gpu_total)}
         </div>
         <div style="font-size:13px;margin-bottom:8px">
@@ -139,26 +129,25 @@ def load_hosts() -> str:
     try:
         data = get_hosts_status()
         nodes = data.get("cluster_nodes", [])
-        local = data.get("local_host", {})
+
+        if not nodes:
+            return "<p>无可用主机（Ray 集群未启动）</p>"
 
         cards = []
-        if local.get("hostname"):
-            cards.append(_render_host_card(
-                hostname=local.get("hostname", ""),
-                ip=local.get("ip", ""),
-                status=local.get("status", "offline"),
-                resources=local.get("resources", {}),
-                is_local=True,
-            ))
         for node in nodes:
+            resources = node.get("resources", {})
             cards.append(_render_host_card(
-                hostname=node.get("hostname", node.get("ip", "Unknown")),
+                hostname=node.get("hostname"),
                 ip=node.get("ip", ""),
                 status=node.get("status", "offline"),
-                resources=node.get("resources", {}),
+                gpu=resources.get("gpu", {}),
+                cpu=resources.get("cpu", {}),
+                memory=resources.get("memory", {}),
+                disk=resources.get("disk", {}),
+                swap=resources.get("swap", {}),
+                is_local=node.get("is_local", False),
             ))
-        if not cards:
-            return "<p>无可用主机</p>"
+
         return "\n".join(cards)
     except RuntimeError as e:
         print(f"Error loading hosts: {e}")

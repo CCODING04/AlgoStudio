@@ -62,7 +62,7 @@ class RayClient:
 
             status = NodeStatus(
                 node_id=node["NodeID"],
-                ip=node.get("NodeName", "unknown"),
+                ip=node.get("node_ip_address", node.get("NodeName", "unknown")),
                 status="idle" if is_alive else "offline",
                 cpu_used=int(resources.get("CPU", 0)),
                 cpu_total=cpu_count,
