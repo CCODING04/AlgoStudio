@@ -87,8 +87,11 @@ ray stop
 脚本会自动检测并安装 uv，如需手动安装：
 
 ```bash
-# 方式一：官方安装脚本（推荐）
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# 方式一：官方安装脚本（推荐，需代理）
+# 如需使用代理：
+HTTP_PROXY="http://192.168.0.120:7890" \
+HTTPS_PROXY="http://192.168.0.120:7890" \
+    curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env
 
 # 方式二：pip 安装

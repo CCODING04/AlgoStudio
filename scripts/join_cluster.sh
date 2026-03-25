@@ -40,8 +40,10 @@ if [ ! -d "$VENV_DIR" ]; then
     echo "[1/4] 创建 uv 虚拟环境..."
     if ! command -v uv &> /dev/null; then
         echo "      uv 未安装，正在安装 uv..."
-        # 安装 uv（单行命令，自动检测平台）
-        curl -LsSf https://astral.sh/uv/install.sh | sh
+        # 使用代理下载 uv（国内访问 https://astral.sh 需要代理）
+        HTTP_PROXY="http://192.168.0.120:7890" \
+        HTTPS_PROXY="http://192.168.0.120:7890" \
+            curl -LsSf https://astral.sh/uv/install.sh | sh
         # 让当前 shell 加载 uv
         export PATH="$HOME/.local/bin:$PATH"
     fi
