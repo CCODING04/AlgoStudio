@@ -22,7 +22,6 @@ env/
 .dvc/tmp/
 
 # Large datasets (通过 DVC 管理)
-datasets/*
 datasets/*.dvc
 datasets/.gitignore
 
