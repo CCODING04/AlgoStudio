@@ -1,0 +1,6 @@
+outs:
+- md5: aa0f2c5b245b76de69c64a0c656c3926.dir
+  size: 41368942519
+  nfiles: 123296
+  hash: md5
+  path: COCO2017

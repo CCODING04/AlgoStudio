@@ -13,6 +13,22 @@ AI 算法平台，支持算法自我迭代进化和多机调度训练。
 
 ## 快速开始
 
+### 环境变量配置
+
+复制 `env.example` 为 `env` 并填入必要配置：
+
+```bash
+cp env.example env
+# 编辑 env 文件填入 GITHUB_TOKEN_ID
+```
+
+**env 文件格式：**
+```
+GITHUB_TOKEN_ID=your_github_token_here
+```
+
+> ⚠️ **注意**: `env` 文件包含敏感信息，已被 `.gitignore` 忽略，请勿提交到 git！
+
 ### 环境隔离（重要！）
 
 **使用 uv 隔离部署，不污染系统环境：**

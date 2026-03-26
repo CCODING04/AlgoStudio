@@ -1,13 +1,49 @@
+# Claude Code
+.claude
+CLAUDE.md
+.superpowers
+
+# Environment variables (contains secrets)
+env
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
-.pytest_cache/
-.coverage
-.env
 .venv/
-venv/
 *.egg-info/
-dist/
-build/
-.superpowers/
-env
+
+# Virtual environments
+venv/
+env/
+
+# DVC
+.dvc/cache/
+.dvc/tmp/
+
+# Large datasets (通过 DVC 管理)
+datasets/*
+datasets/*.dvc
+datasets/.gitignore
+
+# Model files (large binaries)
+algorithms/**/*.pth
+algorithms/**/*.pt
+algorithms/**/*.onnx
+
+# Redis
+appendonly.aof
+
+# Runtime data
+data/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
