@@ -68,3 +68,48 @@ Phase 1 已完成，以下问题已解决：
 | G3 | decrement_usage 缺乐观锁 | 配额 | 版本检查 | ✅ 已完成 |
 
 **最后更新：** 2026-03-27
+
+---
+
+## Phase 2.3 架构优化问题 (待处理)
+
+### 问题记录
+
+| ID | 问题 | 严重性 | 组件 | 解决方案 | 状态 |
+|----|------|---------|------|---------|------|
+| A1 | ProgressReporter Actor 在成功路径未清理 | Medium | task.py | 添加 finally 块清理 actor | 待处理 |
+| A2 | hosts.py API 缺少单元测试 | Medium | test | 添加单元测试覆盖 | 待处理 |
+
+### A1 详细说明
+
+**问题**：ProgressReporter 在 `dispatch_task` 成功路径（任务完成后）没有被清理。每个 dispatch 的任务都会泄漏一个 ProgressReporter actor，长时间运行后会导致 Ray 集群中积累大量 orphaned actors。
+
+**位置**：`src/algo_studio/core/task.py` - `dispatch_task` 方法
+
+**当前代码问题**：
+```python
+progress_reporter = ProgressReporter.remote()  # 创建
+try:
+    result_ref = ray_client.submit_task(...)  # 可能成功
+except Exception as e:
+    ray.kill(progress_reporter, no_restart=True)  # 失败时清理
+    ...
+
+# 成功时没有清理！actor 泄漏
+result = ray.get(result_ref)
+self.update_status(task_id, TaskStatus.COMPLETED, result=result)
+return True  # actor 未清理
+```
+
+**建议修复**：
+```python
+try:
+    result_ref = ray_client.submit_task(...)
+    result = ray.get(result_ref)
+finally:
+    # 确保无论成功失败都清理 actor
+    try:
+        ray.kill(progress_reporter, no_restart=True)
+    except:
+        pass
+```

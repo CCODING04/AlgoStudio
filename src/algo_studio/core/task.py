@@ -248,40 +248,50 @@ class TaskManager:
         progress_reporter = ProgressReporter.remote()
 
         # 根据 task_type 提交到 Ray（使用 node_ip 确保在目标节点运行）
-        if task.task_type == TaskType.TRAIN:
-            result_ref = ray_client.submit_task(
-                run_training,
-                task.task_id,
-                task.algorithm_name,
-                task.algorithm_version,
-                task.config,
-                progress_reporter,
-                num_gpus=1,
-                node_ip=selected_node.ip
-            )
-        elif task.task_type == TaskType.INFER:
-            result_ref = ray_client.submit_task(
-                run_inference,
-                task.task_id,
-                task.algorithm_name,
-                task.algorithm_version,
-                task.config,
-                progress_reporter,
-                num_gpus=0,
-                node_ip=selected_node.ip
-            )
-        elif task.task_type == TaskType.VERIFY:
-            result_ref = ray_client.submit_task(
-                run_verification,
-                task.task_id,
-                task.algorithm_name,
-                task.algorithm_version,
-                task.config,
-                progress_reporter,
-                num_gpus=0,
-                node_ip=selected_node.ip
-            )
-        else:
+        try:
+            if task.task_type == TaskType.TRAIN:
+                result_ref = ray_client.submit_task(
+                    run_training,
+                    task.task_id,
+                    task.algorithm_name,
+                    task.algorithm_version,
+                    task.config,
+                    progress_reporter,
+                    num_gpus=1,
+                    node_ip=selected_node.ip
+                )
+            elif task.task_type == TaskType.INFER:
+                result_ref = ray_client.submit_task(
+                    run_inference,
+                    task.task_id,
+                    task.algorithm_name,
+                    task.algorithm_version,
+                    task.config,
+                    progress_reporter,
+                    num_gpus=0,
+                    node_ip=selected_node.ip
+                )
+            elif task.task_type == TaskType.VERIFY:
+                result_ref = ray_client.submit_task(
+                    run_verification,
+                    task.task_id,
+                    task.algorithm_name,
+                    task.algorithm_version,
+                    task.config,
+                    progress_reporter,
+                    num_gpus=0,
+                    node_ip=selected_node.ip
+                )
+            else:
+                self.update_status(task_id, TaskStatus.FAILED, error=f"Unknown task type: {task.task_type}")
+                return False
+        except Exception as e:
+            # 清理已创建的 ProgressReporter Actor
+            try:
+                ray.kill(progress_reporter, no_restart=True)
+            except:
+                pass
+            self.update_status(task_id, TaskStatus.FAILED, error=f"Failed to submit task: {str(e)}")
             return False
 
         # 等待 Ray 任务完成并更新状态
@@ -350,8 +360,6 @@ def _load_algorithm(algo_name: str, algo_version: str):
             return attr()
 
     raise ValueError(f"No algorithm implementation found in {algo_path}")
-
-    raise ValueError(f"No AlgorithmInterface implementation found in {algo_path}")
 
 
 class RayProgressCallback:

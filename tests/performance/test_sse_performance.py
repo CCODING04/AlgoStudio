@@ -70,8 +70,26 @@ class TestSSEPerformance:
         return "http://192.168.0.126:8000"
 
     @pytest.fixture
-    def test_task_id(self) -> str:
-        """Return a test task ID for SSE connections."""
+    def test_task_id(self, api_base_url: str) -> str:
+        """Create a test task and return its task_id for SSE connections."""
+        import pytest
+        task_payload = {
+            "task_type": "train",
+            "algorithm_name": "simple_classifier",
+            "algorithm_version": "v1",
+            "config": {"epochs": 100}
+        }
+        try:
+            response = requests.post(f"{api_base_url}/api/tasks", json=task_payload, timeout=5)
+            if response.status_code == 200:
+                task_data = response.json()
+                return task_data.get("task_id", "train-test-sse")
+            elif response.status_code in (401, 403):
+                # Authentication required but not available - skip test
+                pytest.skip("API authentication required but not configured (RBAC_SECRET_KEY missing)")
+        except Exception:
+            pass
+        # Fallback to a static ID if API is unavailable
         return "train-test-sse"
 
     @pytest.mark.performance
@@ -106,8 +124,36 @@ class TestSSEPerformance:
 
         print(f"\nTesting {num_connections} concurrent SSE connections for {duration_seconds}s...")
 
+        # Create all tasks first
+        task_ids = []
+        task_payload = {
+            "task_type": "train",
+            "algorithm_name": "simple_classifier",
+            "algorithm_version": "v1",
+            "config": {"epochs": 1}
+        }
+        auth_failed = False
+        try:
+            for i in range(num_connections):
+                response = requests.post(f"{api_base_url}/api/tasks", json=task_payload, timeout=5)
+                if response.status_code == 200:
+                    task_data = response.json()
+                    task_ids.append(task_data.get("task_id", f"{test_task_id}-{i}"))
+                elif response.status_code in (401, 403):
+                    auth_failed = True
+                    break
+                else:
+                    task_ids.append(f"{test_task_id}-{i}")
+        except Exception as e:
+            print(f"  Warning: Could not create tasks: {e}")
+            # Fall back to generated IDs
+            task_ids = [f"{test_task_id}-{i}" for i in range(num_connections)]
+
+        if auth_failed:
+            pytest.skip("API authentication required but not configured (RBAC_SECRET_KEY missing)")
+
         def create_sse_connection(conn_id: int) -> Tuple[int, SSEClient]:
-            task_id = f"{test_task_id}-{conn_id}"
+            task_id = task_ids[conn_id]
             url = f"{api_base_url}/api/tasks/{task_id}/progress"
             client = SSEClient(url, timeout=duration_seconds + 10)
             return (conn_id, client)
@@ -161,10 +207,38 @@ class TestSSEPerformance:
 
         print(f"\nTesting {num_connections} concurrent SSE connections for {duration_seconds}s...")
 
+        # Create all tasks first
+        task_ids = []
+        task_payload = {
+            "task_type": "train",
+            "algorithm_name": "simple_classifier",
+            "algorithm_version": "v1",
+            "config": {"epochs": 1}
+        }
+        auth_failed = False
+        try:
+            for i in range(num_connections):
+                response = requests.post(f"{api_base_url}/api/tasks", json=task_payload, timeout=5)
+                if response.status_code == 200:
+                    task_data = response.json()
+                    task_ids.append(task_data.get("task_id", f"{test_task_id}-{i}"))
+                elif response.status_code in (401, 403):
+                    auth_failed = True
+                    break
+                else:
+                    task_ids.append(f"{test_task_id}-{i}")
+        except Exception as e:
+            print(f"  Warning: Could not create tasks: {e}")
+            # Fall back to generated IDs
+            task_ids = [f"{test_task_id}-{i}" for i in range(num_connections)]
+
+        if auth_failed:
+            pytest.skip("API authentication required but not configured (RBAC_SECRET_KEY missing)")
+
         clients = []
 
         def create_and_listen(conn_id: int):
-            task_id = f"{test_task_id}-{conn_id}"
+            task_id = task_ids[conn_id]
             url = f"{api_base_url}/api/tasks/{task_id}/progress"
             client = SSEClient(url, timeout=duration_seconds + 10)
             clients.append(client)
@@ -247,6 +321,8 @@ class TestSSEPerformance:
             if response.status_code == 200:
                 task_data = response.json()
                 task_id = task_data.get("task_id", task_id)
+            elif response.status_code in (401, 403):
+                pytest.skip("API authentication required but not configured (RBAC_SECRET_KEY missing)")
         except Exception:
             pass
 

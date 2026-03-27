@@ -1,21 +1,36 @@
 # src/algo_studio/api/routes/hosts.py
+import asyncio
 from fastapi import APIRouter
+from fastapi.responses import RedirectResponse
 from algo_studio.core.ray_client import RayClient
 from algo_studio.monitor.host_monitor import HostMonitor
 
 router = APIRouter(prefix="/api/hosts", tags=["hosts"])
-ray_client = RayClient()
+_ray_client = None
 local_monitor = HostMonitor()
 
+
+def get_ray_client():
+    """Lazy initialization of RayClient to avoid ray.init() conflicts."""
+    global _ray_client
+    if _ray_client is None:
+        _ray_client = RayClient()
+    return _ray_client
+
 @router.get("/status")
-async def get_host_status():
+async def get_hosts_status_alias():
+    """兼容性别名路由 - 重定向到 /"""
+    return RedirectResponse(url="/api/hosts/", status_code=307)
+
+@router.get("/")
+async def get_hosts_status():
     """获取所有集群主机状态"""
     try:
-        # 获取 Ray 集群节点列表
-        nodes = ray_client.get_nodes()
+        # 获取 Ray 集群节点列表 (异步化，避免阻塞事件循环)
+        nodes = await asyncio.to_thread(get_ray_client().get_nodes)
 
-        # 获取本机详细信息
-        local_info = local_monitor.get_host_info()
+        # 获取本机详细信息 (use_cached_cpu=True for fast non-blocking call)
+        local_info = local_monitor.get_host_info(use_cached_cpu=True)
 
         # 获取本机所有 IP（用于匹配 head node）
         import psutil

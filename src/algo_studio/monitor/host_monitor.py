@@ -47,11 +47,22 @@ class HostInfo:
 class HostMonitor:
     """主机状态监控"""
 
-    def get_host_info(self) -> HostInfo:
-        """获取本机状态信息"""
+    def get_host_info(self, use_cached_cpu: bool = False) -> HostInfo:
+        """获取本机状态信息
+
+        Args:
+            use_cached_cpu: If True, use cpu_percent(interval=None) for faster
+                           non-blocking call that returns the CPU usage since last call.
+                           If False (default), uses a 1-second blocking measurement.
+        """
         cpu_count = psutil.cpu_count()  # logical cores (threads)
         cpu_physical_cores = psutil.cpu_count(logical=False)  # physical cores
-        cpu_used = psutil.cpu_percent(interval=1)
+        if use_cached_cpu:
+            # Non-blocking, returns since-last-call percentage
+            cpu_used = psutil.cpu_percent(interval=None)
+        else:
+            # 1-second blocking measurement for accurate CPU usage
+            cpu_used = psutil.cpu_percent(interval=1)
 
         # CPU 型号和频率
         cpu_model = "Unknown"

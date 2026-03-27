@@ -1,15 +1,27 @@
 # src/algo_studio/api/routes/tasks.py
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+from sse_starlette.sse import EventSourceResponse
+import asyncio
+import json
+import ray
 from algo_studio.api.models import TaskCreateRequest, TaskResponse, TaskListResponse, TaskPaginatedResponse
-from algo_studio.core.task import TaskManager, TaskType, TaskStatus
+from algo_studio.core.task import TaskManager, TaskType, TaskStatus, get_progress_store
 from algo_studio.core.ray_client import RayClient
-from algo_studio.api.middleware.rbac import require_permission, Permission
+from algo_studio.api.middleware.rbac import Permission
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 # 全局任务管理器实例
 task_manager = TaskManager()
-ray_client = RayClient()
+_ray_client = None
+
+
+def get_ray_client():
+    """Lazy initialization of RayClient to avoid ray.init() conflicts."""
+    global _ray_client
+    if _ray_client is None:
+        _ray_client = RayClient()
+    return _ray_client
 
 
 @router.post("", response_model=TaskResponse)
@@ -128,7 +140,7 @@ async def dispatch_task(task_id: str):
     # 在后台线程中执行 Ray 任务（不阻塞 API）
     import asyncio
     asyncio.create_task(
-        asyncio.to_thread(task_manager.dispatch_task, task_id, ray_client)
+        asyncio.to_thread(task_manager.dispatch_task, task_id, get_ray_client())
     )
 
     task = task_manager.get_task(task_id)
@@ -159,3 +171,115 @@ async def delete_task(task_id: str):
 
     task_manager.delete_task(task_id)
     return {"message": "Task deleted successfully", "task_id": task_id}
+
+
+@router.get("/{task_id}/progress")
+async def get_task_progress(task_id: str, request: Request):
+    """SSE endpoint for task progress streaming.
+
+    Provides Server-Sent Events (SSE) streaming for real-time task
+    progress updates. The stream continues until the task completes,
+    fails, or the client disconnects.
+
+    Event types:
+    - progress: Regular progress update with current percentage
+    - completed: Task finished successfully
+    - failed: Task failed with error message
+
+    Args:
+        task_id: The task ID
+        request: FastAPI request object
+
+    Returns:
+        EventSourceResponse with SSE stream
+
+    Raises:
+        404: Task not found
+    """
+    # Check if task exists
+    task = task_manager.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    # Get progress store
+    progress_store = get_progress_store()
+
+    async def progress_generator():
+        """SSE generator for task progress updates."""
+        last_progress = 0
+        last_status = None
+        consecutive_empty = 0
+        max_empty_count = 30  # 30 seconds before heartbeat
+
+        while True:
+            try:
+                # Poll current progress from Ray actor
+                try:
+                    current_progress = ray.get(progress_store.get.remote(task_id))
+                except Exception:
+                    current_progress = 0
+
+                # Get current task state
+                current_task = task_manager.get_task(task_id)
+                if not current_task:
+                    yield {
+                        "event": "error",
+                        "data": json.dumps({"error": "Task not found"})
+                    }
+                    break
+
+                # Check for terminal state
+                if current_task.status == TaskStatus.COMPLETED:
+                    yield {
+                        "event": "completed",
+                        "data": json.dumps({
+                            "task_id": task_id,
+                            "status": "completed",
+                            "progress": 100,
+                            "message": "Task completed successfully"
+                        })
+                    }
+                    break
+                elif current_task.status == TaskStatus.FAILED:
+                    yield {
+                        "event": "failed",
+                        "data": json.dumps({
+                            "task_id": task_id,
+                            "status": "failed",
+                            "error": current_task.error or "Unknown error"
+                        })
+                    }
+                    break
+
+                # Send update if progress changed or heartbeat interval
+                if current_progress != last_progress or consecutive_empty >= max_empty_count:
+                    yield {
+                        "event": "progress",
+                        "data": json.dumps({
+                            "task_id": task_id,
+                            "status": current_task.status.value,
+                            "progress": current_progress,
+                            "message": f"Task running: {current_progress}%"
+                        })
+                    }
+                    last_progress = current_progress
+                    last_status = current_task.status
+                    consecutive_empty = 0
+                else:
+                    consecutive_empty += 1
+
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    break
+
+                # Poll interval - 1 second
+                await asyncio.sleep(1)
+
+            except Exception as e:
+                yield {
+                    "event": "error",
+                    "data": json.dumps({"error": str(e)})
+                }
+                break
+
+    return EventSourceResponse(progress_generator())

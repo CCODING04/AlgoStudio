@@ -4,12 +4,40 @@ API Load Performance Tests
 Tests API endpoint performance under various load conditions.
 Run with: pytest tests/performance/test_api_load.py -v -m performance
 """
-import pytest
+import os
 import time
 import statistics
+import hashlib
+import hmac
+import pytest
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Tuple
+
+# Test secret key for authentication
+TEST_SECRET_KEY = "test-secret-key-for-benchmark"
+os.environ["RBAC_SECRET_KEY"] = TEST_SECRET_KEY
+
+
+def generate_signature(user_id: str, timestamp: str) -> str:
+    """Generate HMAC-SHA256 signature for authentication."""
+    message = f"{user_id}:{timestamp}"
+    return hmac.new(
+        TEST_SECRET_KEY.encode(),
+        message.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+
+def get_auth_headers(user_id: str = "test-user", role: str = "admin") -> dict:
+    """Generate valid auth headers."""
+    timestamp = str(int(time.time()))
+    return {
+        "X-User-ID": user_id,
+        "X-User-Role": role,
+        "X-Timestamp": timestamp,
+        "X-Signature": generate_signature(user_id, timestamp),
+    }
 
 
 class TestAPILoad:
@@ -26,7 +54,7 @@ class TestAPILoad:
         latencies = []
         for _ in range(100):
             start = time.perf_counter()
-            response = requests.get(f"{api_base_url}/api/tasks", timeout=10)
+            response = requests.get(f"{api_base_url}/api/tasks", timeout=10, headers=get_auth_headers())
             elapsed = (time.perf_counter() - start) * 1000
             latencies.append(elapsed)
             assert response.status_code == 200, f"Expected 200, got {response.status_code}"
@@ -48,7 +76,7 @@ class TestAPILoad:
 
         for _ in range(100):
             start = time.perf_counter()
-            response = requests.get(f"{api_base_url}/api/tasks/{task_id}", timeout=10)
+            response = requests.get(f"{api_base_url}/api/tasks/{task_id}", timeout=10, headers=get_auth_headers())
             elapsed = (time.perf_counter() - start) * 1000
             latencies.append(elapsed)
             # Accept both 200 (success) and 404 (task not found) as valid responses
@@ -68,7 +96,7 @@ class TestAPILoad:
         latencies = []
         for _ in range(100):
             start = time.perf_counter()
-            response = requests.get(f"{api_base_url}/api/hosts", timeout=10)
+            response = requests.get(f"{api_base_url}/api/hosts", timeout=10, headers=get_auth_headers())
             elapsed = (time.perf_counter() - start) * 1000
             latencies.append(elapsed)
             assert response.status_code == 200, f"Expected 200, got {response.status_code}"
@@ -89,7 +117,7 @@ class TestAPILoad:
         def make_request() -> Tuple[int, float]:
             start = time.perf_counter()
             try:
-                response = requests.get(f"{api_base_url}/api/tasks", timeout=30)
+                response = requests.get(f"{api_base_url}/api/tasks", timeout=30, headers=get_auth_headers())
                 elapsed = time.perf_counter() - start
                 return (response.status_code, elapsed * 1000)
             except Exception as e:
@@ -129,7 +157,7 @@ class TestAPILoad:
         def make_request(endpoint: str) -> Tuple[str, int, float]:
             start = time.perf_counter()
             try:
-                response = requests.get(f"{api_base_url}{endpoint}", timeout=30)
+                response = requests.get(f"{api_base_url}{endpoint}", timeout=30, headers=get_auth_headers())
                 elapsed = time.perf_counter() - start
                 return (endpoint, response.status_code, elapsed * 1000)
             except Exception as e:
@@ -187,7 +215,7 @@ class TestAPILoad:
         while time.perf_counter() - start_time < duration_seconds:
             req_start = time.perf_counter()
             try:
-                response = requests.get(f"{api_base_url}/api/tasks", timeout=5)
+                response = requests.get(f"{api_base_url}/api/tasks", timeout=5, headers=get_auth_headers())
                 req_elapsed = (time.perf_counter() - req_start) * 1000
                 latencies.append(req_elapsed)
                 if response.status_code == 200:
@@ -259,7 +287,8 @@ class TestAPIThroughput:
                 response = requests.post(
                     f"{api_base_url}/api/tasks",
                     json=task_payload,
-                    timeout=10
+                    timeout=10,
+                    headers=get_auth_headers()
                 )
                 elapsed = (time.perf_counter() - start) * 1000
                 latencies.append(elapsed)
@@ -294,7 +323,7 @@ class TestAPIThroughput:
         }
 
         try:
-            create_response = requests.post(f"{api_base_url}/api/tasks", json=task_payload, timeout=10)
+            create_response = requests.post(f"{api_base_url}/api/tasks", json=task_payload, timeout=10, headers=get_auth_headers())
             if create_response.status_code == 200:
                 task_data = create_response.json()
                 task_id = task_data.get("task_id", "train-test-dispatch")
@@ -308,7 +337,8 @@ class TestAPIThroughput:
             try:
                 response = requests.post(
                     f"{api_base_url}/api/tasks/{task_id}/dispatch",
-                    timeout=10
+                    timeout=10,
+                    headers=get_auth_headers()
                 )
                 elapsed = (time.perf_counter() - start) * 1000
                 latencies.append(elapsed)

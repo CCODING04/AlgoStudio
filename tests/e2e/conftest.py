@@ -297,6 +297,52 @@ def is_ci_environment():
 # Test Data Factories
 # =============================================================================
 
+class E2EDeployFactory:
+    """Factory for creating deployment test data for E2E tests."""
+
+    @staticmethod
+    def create_deploy_task(
+        node_ip: str = "192.168.0.120",
+        username: str = "admin20",
+        password: str = "test-password",
+        head_ip: str = "192.168.0.126",
+        ray_port: int = 6379,
+        work_dir: str = "/tmp/deploy_test",
+    ) -> dict:
+        """Create a full deployment task payload."""
+        return {
+            "node_ip": node_ip,
+            "username": username,
+            "password": password,
+            "head_ip": head_ip,
+            "ray_port": ray_port,
+            "work_dir": work_dir,
+        }
+
+    @staticmethod
+    def create_minimal() -> dict:
+        """Create a minimal deployment configuration."""
+        return E2EDeployFactory.create_deploy_task(
+            node_ip="192.168.0.120",
+            username="admin",
+            password="test",
+        )
+
+    @staticmethod
+    def create_with_custom_head(head_ip: str, ray_port: int = 6379) -> dict:
+        """Create a deployment task with custom head node settings."""
+        return E2EDeployFactory.create_deploy_task(
+            head_ip=head_ip,
+            ray_port=ray_port,
+        )
+
+
+@pytest.fixture
+def deploy_factory():
+    """Provide E2EDeployFactory."""
+    return E2EDeployFactory
+
+
 class E2ETaskFactory:
     """Factory for creating task test data for E2E tests."""
 

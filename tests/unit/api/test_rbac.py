@@ -15,7 +15,6 @@ import time
 from unittest.mock import patch
 
 import pytest
-from fastapi.exceptions import HTTPException
 from httpx import AsyncClient, ASGITransport
 
 # Set secret key before importing app
@@ -65,18 +64,17 @@ async def test_missing_signature_rejected():
     """Test that requests without X-Signature header are rejected."""
     client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
-    with pytest.raises(HTTPException) as exc_info:
-        await client.get(
-            "/api/tasks",
-            headers={
-                "X-User-ID": "test-user",
-                "X-User-Role": "developer",
-                "X-Timestamp": str(int(time.time())),
-            },
-        )
+    response = await client.get(
+        "/api/tasks",
+        headers={
+            "X-User-ID": "test-user",
+            "X-User-Role": "developer",
+            "X-Timestamp": str(int(time.time())),
+        },
+    )
 
-    assert exc_info.value.status_code == 401
-    assert exc_info.value.detail["error"]["code"] == "INVALID_SIGNATURE"
+    assert response.status_code == 401
+    assert response.json()["detail"]["error"]["code"] == "INVALID_SIGNATURE"
 
 
 @pytest.mark.asyncio
@@ -84,19 +82,18 @@ async def test_invalid_signature_rejected():
     """Test that requests with invalid signature are rejected."""
     client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
-    with pytest.raises(HTTPException) as exc_info:
-        await client.get(
-            "/api/tasks",
-            headers={
-                "X-User-ID": "test-user",
-                "X-User-Role": "developer",
-                "X-Timestamp": str(int(time.time())),
-                "X-Signature": "invalid-signature-12345",
-            },
-        )
+    response = await client.get(
+        "/api/tasks",
+        headers={
+            "X-User-ID": "test-user",
+            "X-User-Role": "developer",
+            "X-Timestamp": str(int(time.time())),
+            "X-Signature": "invalid-signature-12345",
+        },
+    )
 
-    assert exc_info.value.status_code == 401
-    assert exc_info.value.detail["error"]["code"] == "INVALID_SIGNATURE"
+    assert response.status_code == 401
+    assert response.json()["detail"]["error"]["code"] == "INVALID_SIGNATURE"
 
 
 @pytest.mark.asyncio
@@ -108,11 +105,10 @@ async def test_expired_timestamp_rejected():
     old_timestamp = int(time.time()) - MAX_TIMESTAMP_AGE - 60
     headers = make_auth_headers(timestamp=old_timestamp)
 
-    with pytest.raises(HTTPException) as exc_info:
-        await client.get("/api/tasks", headers=headers)
+    response = await client.get("/api/tasks", headers=headers)
 
-    assert exc_info.value.status_code == 401
-    assert exc_info.value.detail["error"]["code"] == "INVALID_SIGNATURE"
+    assert response.status_code == 401
+    assert response.json()["detail"]["error"]["code"] == "INVALID_SIGNATURE"
 
 
 @pytest.mark.asyncio
@@ -135,10 +131,9 @@ async def test_replay_attack_prevention():
     future_timestamp = int(time.time()) + MAX_TIMESTAMP_AGE + 60
     headers_future = make_auth_headers(timestamp=future_timestamp)
 
-    with pytest.raises(HTTPException) as exc_info:
-        await client.get("/api/tasks", headers=headers_future)
+    response = await client.get("/api/tasks", headers=headers_future)
 
-    assert exc_info.value.status_code == 401
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -146,18 +141,17 @@ async def test_missing_user_id_rejected():
     """Test that requests without X-User-ID header are rejected."""
     client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
-    with pytest.raises(HTTPException) as exc_info:
-        await client.get(
-            "/api/tasks",
-            headers={
-                "X-User-Role": "developer",
-                "X-Timestamp": str(int(time.time())),
-                "X-Signature": "some-signature",
-            },
-        )
+    response = await client.get(
+        "/api/tasks",
+        headers={
+            "X-User-Role": "developer",
+            "X-Timestamp": str(int(time.time())),
+            "X-Signature": "some-signature",
+        },
+    )
 
-    assert exc_info.value.status_code == 401
-    assert "X-User-ID" in exc_info.value.detail["error"]["message"]
+    assert response.status_code == 401
+    assert "X-User-ID" in response.json()["detail"]["error"]["message"]
 
 
 @pytest.mark.asyncio
@@ -165,18 +159,17 @@ async def test_missing_timestamp_rejected():
     """Test that requests without X-Timestamp header are rejected."""
     client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
-    with pytest.raises(HTTPException) as exc_info:
-        await client.get(
-            "/api/tasks",
-            headers={
-                "X-User-ID": "test-user",
-                "X-User-Role": "developer",
-                "X-Signature": "some-signature",
-            },
-        )
+    response = await client.get(
+        "/api/tasks",
+        headers={
+            "X-User-ID": "test-user",
+            "X-User-Role": "developer",
+            "X-Signature": "some-signature",
+        },
+    )
 
-    assert exc_info.value.status_code == 401
-    assert exc_info.value.detail["error"]["code"] == "INVALID_SIGNATURE"
+    assert response.status_code == 401
+    assert response.json()["detail"]["error"]["code"] == "INVALID_SIGNATURE"
 
 
 @pytest.mark.asyncio
@@ -192,19 +185,18 @@ async def test_role_based_access_control():
     assert response.status_code == 200
 
     # Viewer cannot create tasks (should fail at permission check)
-    with pytest.raises(HTTPException) as exc_info:
-        await client.post(
-            "/api/tasks",
-            headers=viewer_headers,
-            json={
-                "task_type": "train",
-                "algorithm_name": "simple_classifier",
-                "algorithm_version": "v1",
-            },
-        )
+    response = await client.post(
+        "/api/tasks",
+        headers=viewer_headers,
+        json={
+            "task_type": "train",
+            "algorithm_name": "simple_classifier",
+            "algorithm_version": "v1",
+        },
+    )
 
-    assert exc_info.value.status_code == 403
-    assert exc_info.value.detail["error"]["code"] == "PERMISSION_DENIED"
+    assert response.status_code == 403
+    assert response.json()["detail"]["error"]["code"] == "PERMISSION_DENIED"
 
 
 @pytest.mark.asyncio
@@ -218,27 +210,23 @@ async def test_permission_check_viewer():
     assert response.status_code == 200
 
     # Viewer CANNOT create tasks
-    with pytest.raises(HTTPException) as exc_info:
-        await client.post(
-            "/api/tasks",
-            headers=viewer_headers,
-            json={
-                "task_type": "train",
-                "algorithm_name": "simple_classifier",
-                "algorithm_version": "v1",
-            },
-        )
-
-    assert exc_info.value.status_code == 403
+    response = await client.post(
+        "/api/tasks",
+        headers=viewer_headers,
+        json={
+            "task_type": "train",
+            "algorithm_name": "simple_classifier",
+            "algorithm_version": "v1",
+        },
+    )
+    assert response.status_code == 403
 
     # Viewer CANNOT delete tasks
-    with pytest.raises(HTTPException) as exc_info:
-        await client.delete(
-            "/api/tasks/test-task-id",
-            headers=viewer_headers,
-        )
-
-    assert exc_info.value.status_code == 403
+    response = await client.delete(
+        "/api/tasks/test-task-id",
+        headers=viewer_headers,
+    )
+    assert response.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -374,10 +362,9 @@ async def test_tampered_signature_rejected():
     # Tamper with signature
     headers["X-Signature"] = headers["X-Signature"][:-4] + "xxxx"
 
-    with pytest.raises(HTTPException) as exc_info:
-        await client.get("/api/tasks", headers=headers)
+    response = await client.get("/api/tasks", headers=headers)
 
-    assert exc_info.value.status_code == 401
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -392,10 +379,9 @@ async def test_wrong_secret_key_rejected():
         secret_key="wrong-secret-key",
     )
 
-    with pytest.raises(HTTPException) as exc_info:
-        await client.get("/api/tasks", headers=headers)
+    response = await client.get("/api/tasks", headers=headers)
 
-    assert exc_info.value.status_code == 401
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -403,18 +389,17 @@ async def test_invalid_timestamp_format_rejected():
     """Test that non-numeric timestamp is rejected."""
     client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
-    with pytest.raises(HTTPException) as exc_info:
-        await client.get(
-            "/api/tasks",
-            headers={
-                "X-User-ID": "test-user",
-                "X-User-Role": "developer",
-                "X-Timestamp": "not-a-number",
-                "X-Signature": "some-signature",
-            },
-        )
+    response = await client.get(
+        "/api/tasks",
+        headers={
+            "X-User-ID": "test-user",
+            "X-User-Role": "developer",
+            "X-Timestamp": "not-a-number",
+            "X-Signature": "some-signature",
+        },
+    )
 
-    assert exc_info.value.status_code == 401
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -426,10 +411,9 @@ async def test_future_timestamp_rejected():
     future_timestamp = int(time.time()) + MAX_TIMESTAMP_AGE + 60
     headers = make_auth_headers(timestamp=future_timestamp)
 
-    with pytest.raises(HTTPException) as exc_info:
-        await client.get("/api/tasks", headers=headers)
+    response = await client.get("/api/tasks", headers=headers)
 
-    assert exc_info.value.status_code == 401
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -437,18 +421,17 @@ async def test_empty_signature_rejected():
     """Test that empty signature string is rejected."""
     client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
-    with pytest.raises(HTTPException) as exc_info:
-        await client.get(
-            "/api/tasks",
-            headers={
-                "X-User-ID": "test-user",
-                "X-User-Role": "developer",
-                "X-Timestamp": str(int(time.time())),
-                "X-Signature": "",
-            },
-        )
+    response = await client.get(
+        "/api/tasks",
+        headers={
+            "X-User-ID": "test-user",
+            "X-User-Role": "developer",
+            "X-Timestamp": str(int(time.time())),
+            "X-Signature": "",
+        },
+    )
 
-    assert exc_info.value.status_code == 401
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio

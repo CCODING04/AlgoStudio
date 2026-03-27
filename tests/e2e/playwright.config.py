@@ -137,6 +137,29 @@ def api_client():
         def get_host(self, node_id: str):
             return self.client.get(f"/api/hosts/{node_id}")
 
+        # Deployment methods
+        def list_deployments(self, status: Optional[str] = None, node_ip: Optional[str] = None):
+            """List all deployment records with optional filtering."""
+            params = {}
+            if status:
+                params["status"] = status
+            if node_ip:
+                params["node_ip"] = node_ip
+            return self.client.get("/api/deploy/workers", params=params)
+
+        def get_deployment(self, task_id: str):
+            """Get specific deployment details by task ID."""
+            return self.client.get(f"/api/deploy/worker/{task_id}")
+
+        def create_deployment(self, deploy_data: dict):
+            """Trigger new worker deployment."""
+            return self.client.post("/api/deploy/worker", json=deploy_data)
+
+        def get_deployment_progress(self, task_id: str):
+            """Get SSE progress stream for deployment task."""
+            # Note: This returns the raw response for SSE handling
+            return self.client.get(f"/api/deploy/worker/{task_id}/progress")
+
         def close(self):
             self.client.close()
 

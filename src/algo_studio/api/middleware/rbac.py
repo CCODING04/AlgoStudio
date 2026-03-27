@@ -53,6 +53,8 @@ class Permission(str, Enum):
     ADMIN_USER = "admin.user"
     ADMIN_QUOTA = "admin.quota"
     ADMIN_ALERT = "admin.alert"
+    DEPLOY_READ = "deploy.read"
+    DEPLOY_WRITE = "deploy.write"
 
 
 class Role(str, Enum):
@@ -97,6 +99,15 @@ class RBACMiddleware(BaseHTTPMiddleware):
         "/docs",
         "/openapi.json",
         "/redoc",
+        "/api/hosts",
+        "/api/hosts/status",
+        "/api/cluster",
+    ]
+
+    # SSE progress endpoints - these require auth but skip permission checks
+    # because progress streaming should be accessible for monitoring
+    SSE_PROGRESS_ROUTES = [
+        "/api/tasks/",
     ]
 
     # Routes that require specific permissions
@@ -166,23 +177,24 @@ class RBACMiddleware(BaseHTTPMiddleware):
         request.state.user = user
         request.state.user_role = role
 
-        # Check permissions for protected routes
-        required_permissions = self._get_required_permissions(request.url.path, request.method)
-        if required_permissions:
-            for perm in required_permissions:
-                if not user.has_permission(perm.value):
-                    return JSONResponse(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        content={
-                            "detail": {
-                                "error": {
-                                    "code": "PERMISSION_DENIED",
-                                    "message": f"Permission '{perm.value}' required for this operation",
-                                    "details": {"required_permission": perm.value},
+        # Check permissions for protected routes (skip for SSE progress endpoints)
+        if not self._is_sse_progress_route(request.url.path):
+            required_permissions = self._get_required_permissions(request.url.path, request.method)
+            if required_permissions:
+                for perm in required_permissions:
+                    if not user.has_permission(perm.value):
+                        return JSONResponse(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            content={
+                                "detail": {
+                                    "error": {
+                                        "code": "PERMISSION_DENIED",
+                                        "message": f"Permission '{perm.value}' required for this operation",
+                                        "details": {"required_permission": perm.value},
+                                    }
                                 }
-                            }
-                        },
-                    )
+                            },
+                        )
 
         return await call_next(request)
 
@@ -231,12 +243,23 @@ class RBACMiddleware(BaseHTTPMiddleware):
 
     def _is_public_route(self, path: str) -> bool:
         """Check if the route is public (no auth required)."""
+        # Normalize path by removing trailing slash (but keep "/" as special case)
+        normalized_path = path.rstrip("/") or "/"
+
+        # Check exact match routes
         for public_route in self.PUBLIC_ROUTES:
-            # Use exact match for root path "/", startswith for others
             if public_route == "/":
-                if path == "/":
+                if normalized_path == "/":
                     return True
-            elif path.startswith(public_route):
+            elif normalized_path == public_route:
+                return True
+
+        return False
+
+    def _is_sse_progress_route(self, path: str) -> bool:
+        """Check if the route is an SSE progress endpoint (auth required, no permission check)."""
+        for sse_route in self.SSE_PROGRESS_ROUTES:
+            if path.startswith(sse_route) and path.endswith("/progress"):
                 return True
         return False
 
