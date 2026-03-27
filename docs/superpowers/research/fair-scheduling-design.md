@@ -948,6 +948,26 @@ class FairSchedulingConfig:
 
 ---
 
+## 10. Implementation Notes (2026-03-27 Review)
+
+### 已确认点
+- ✅ VFT 公式已确认: `VFT = (weight_sum_so_far / tenant_weight) + (task_resources / tenant_allocation_share)`
+- ✅ QuotaManager 集成点已验证可用
+- ✅ 无阻塞依赖
+
+### 需验证项 (Implementation 时验证)
+1. **VFT 公式行为**: 当 `allocation_share` 很小时 VFT 会很大，需在实现时确认是否符合预期
+2. **资源归一化权重**: GPU=10.0, CPU=1.0 应提取到配置中便于调优
+3. **饥饿预防**: 当前 2 小时阈值可考虑渐进式优先级提升
+4. **并发安全**: `GlobalSchedulerQueue.enqueue/dequeue` 需使用 `asyncio.Lock` 保护
+5. **reservation_timeout**: `ReservationManager` 需实现定期清理超时 reservation 的机制
+
+### 建议验收测试场景
+1. 多 tenant 并发提交时，WFQ 正确分配带宽
+2. 高优先级任务到达时，立即抢占低优先级任务
+
+---
+
 ## 9. Related Documents
 
 | Document | Location |

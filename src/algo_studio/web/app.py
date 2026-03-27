@@ -2,6 +2,7 @@ import gradio as gr
 from algo_studio.web.pages.dashboard import make_page as make_dashboard
 from algo_studio.web.pages.tasks import make_page as make_tasks
 from algo_studio.web.pages.hosts import make_page as make_hosts
+from algo_studio.web.pages.deploy import make_page as make_deploy
 
 
 def create_app():
@@ -17,6 +18,9 @@ def create_app():
 
         with gr.Tab("主机监控"):
             make_hosts()
+
+        with gr.Tab("Worker 部署"):
+            make_deploy()
 
     return app
 

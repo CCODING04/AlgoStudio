@@ -19,4 +19,4 @@ def get_tasks() -> dict:
 
 def get_hosts_status() -> dict:
     """Fetch cluster and local host status from the API."""
-    return _get(f"{API_BASE}/api/hosts/status", "Failed to fetch hosts status")
+    return _get(f"{API_BASE}/api/hosts", "Failed to fetch hosts status")
