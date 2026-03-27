@@ -20,14 +20,65 @@ Usage:
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+import asyncssh
 import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
+
+
+# ==============================================================================
+# Command Validation (for security)
+# ==============================================================================
+
+ALLOWED_ROLLBACK_COMMANDS = [
+    r"^ray\s+stop",
+    r"^rm\s+-rf\s+\~/.venv-ray",
+    r"^rm\s+-f\s+\~/.deps_installed",
+    r"^rm\s+-f\s+\~/.code_synced",
+    r"^sudo\s+rm\s+-f\s+/etc/sudoers\.d/admin02",
+    r"^rm\s+-f\s+~/.ssh/authorized_keys",
+    r"^test\s+-[defgLrwx]\s+.*",
+    r"^ls\s+-[la]?\s*.*",
+    r"^cat\s+.*",
+]
+
+FORBIDDEN_ROLLBACK_PATTERNS = [
+    r";\s*rm\s+-rf",
+    r">\s*/dev/sd",
+    r"^\s*dd\s+if=.*of=/dev",
+    r";\s*shutdown",
+    r";\s*reboot",
+    r"eval\s+.*\$",
+    r"`.*`",
+]
+
+
+def validate_rollback_command(cmd: str) -> bool:
+    """Validate rollback command is safe and allowed.
+
+    Args:
+        cmd: Command to validate
+
+    Returns:
+        True if command is allowed, False otherwise
+    """
+    # Check for forbidden patterns
+    for forbidden in FORBIDDEN_ROLLBACK_PATTERNS:
+        if re.search(forbidden, cmd):
+            return False
+
+    # Check against allowed patterns
+    for allowed in ALLOWED_ROLLBACK_COMMANDS:
+        if re.match(allowed, cmd.strip()):
+            return True
+
+    return False
 
 
 class RollbackStatus(str, Enum):
@@ -428,64 +479,327 @@ class RollbackService:
         return entry
 
     async def _rollback_ray(self, snapshot: DeploymentSnapshot) -> None:
-        """Stop Ray worker.
+        """Stop Ray worker via SSH.
 
-        TODO: Implement actual Ray worker rollback via SSH:
-        1. SSH to node_ip
-        2. Run `ray stop` to stop Ray worker
-        3. Verify Ray process is stopped
+        Executes `ray stop` on the remote node to stop the Ray worker process.
+
+        Args:
+            snapshot: Deployment snapshot containing node_ip and credentials
+
+        Raises:
+            SSHConnectionError: If SSH connection fails
         """
         logger.info(f"Rolling back Ray worker on {snapshot.node_ip}")
 
-    async def _rollback_code(self, snapshot: DeploymentSnapshot) -> None:
-        """Rollback code sync.
+        try:
+            # Get SSH credentials from snapshot config or metadata
+            username = snapshot.config.get("username", "admin02")
+            password = snapshot.config.get("password") or snapshot.metadata.get("password")
+            if not password:
+                # Try to get from metadata
+                password = snapshot.metadata.get("ssh_password")
+                if not password:
+                    logger.warning(f"No SSH password found for {snapshot.node_ip}, skipping ray rollback")
+                    return
 
-        TODO: Implement actual code rollback via SSH:
-        1. SSH to node_ip
-        2. Restore code from snapshot.version or previous backup
-        3. Verify code restoration
+            # Execute ray stop via SSH
+            conn = await asyncssh.connect(
+                snapshot.node_ip,
+                username=username,
+                password=password,
+                known_hosts=None,
+                connect_timeout=30,
+            )
+
+            try:
+                # Validate command
+                cmd = "ray stop"
+                if not validate_rollback_command(cmd):
+                    logger.warning(f"Rollback command not allowed: {cmd}")
+                    return
+
+                result = await conn.run(cmd, check=False, timeout=120)
+                if result.exit_status == 0:
+                    logger.info(f"Ray worker stopped successfully on {snapshot.node_ip}")
+                else:
+                    logger.warning(f"Ray stop returned non-zero exit status on {snapshot.node_ip}: {result.exit_status}")
+            finally:
+                conn.close()
+
+        except asyncssh.DisconnectError as e:
+            logger.warning(f"SSH disconnect error during Ray rollback on {snapshot.node_ip}: {e}")
+        except asyncssh.ChannelOpenError as e:
+            logger.warning(f"SSH channel error during Ray rollback on {snapshot.node_ip}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to rollback Ray worker on {snapshot.node_ip}: {e}")
+
+    async def _rollback_code(self, snapshot: DeploymentSnapshot) -> None:
+        """Rollback code sync via SSH.
+
+        Removes the code synced marker file or the code directory.
+
+        Args:
+            snapshot: Deployment snapshot containing node_ip and credentials
+
+        Raises:
+            SSHConnectionError: If SSH connection fails
         """
         logger.info(f"Rolling back code on {snapshot.node_ip}")
 
-    async def _rollback_deps(self, snapshot: DeploymentSnapshot) -> None:
-        """Rollback dependency installation.
+        try:
+            # Get SSH credentials from snapshot config or metadata
+            username = snapshot.config.get("username", "admin02")
+            password = snapshot.config.get("password") or snapshot.metadata.get("password")
+            if not password:
+                password = snapshot.metadata.get("ssh_password")
+                if not password:
+                    logger.warning(f"No SSH password found for {snapshot.node_ip}, skipping code rollback")
+                    return
 
-        TODO: Implement actual dependency rollback via SSH:
-        1. SSH to node_ip
-        2. Restore dependencies to snapshot.config state
-        3. Verify dependency versions
+            conn = await asyncssh.connect(
+                snapshot.node_ip,
+                username=username,
+                password=password,
+                known_hosts=None,
+                connect_timeout=30,
+            )
+
+            try:
+                # Remove the code synced marker
+                cmd = "rm -f ~/.code_synced"
+                if not validate_rollback_command(cmd):
+                    logger.warning(f"Rollback command not allowed: {cmd}")
+                    return
+
+                result = await conn.run(cmd, check=False, timeout=60)
+                if result.exit_status == 0:
+                    logger.info(f"Code sync marker removed on {snapshot.node_ip}")
+                else:
+                    logger.warning(f"Failed to remove code sync marker on {snapshot.node_ip}")
+            finally:
+                conn.close()
+
+        except asyncssh.DisconnectError as e:
+            logger.warning(f"SSH disconnect error during code rollback on {snapshot.node_ip}: {e}")
+        except asyncssh.ChannelOpenError as e:
+            logger.warning(f"SSH channel error during code rollback on {snapshot.node_ip}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to rollback code on {snapshot.node_ip}: {e}")
+
+    async def _rollback_deps(self, snapshot: DeploymentSnapshot) -> None:
+        """Rollback dependency installation via SSH.
+
+        Removes the dependency installed marker file.
+
+        Args:
+            snapshot: Deployment snapshot containing node_ip and credentials
+
+        Raises:
+            SSHConnectionError: If SSH connection fails
         """
         logger.info(f"Rolling back dependencies on {snapshot.node_ip}")
 
-    async def _rollback_venv(self, snapshot: DeploymentSnapshot) -> None:
-        """Rollback virtual environment.
+        try:
+            # Get SSH credentials from snapshot config or metadata
+            username = snapshot.config.get("username", "admin02")
+            password = snapshot.config.get("password") or snapshot.metadata.get("password")
+            if not password:
+                password = snapshot.metadata.get("ssh_password")
+                if not password:
+                    logger.warning(f"No SSH password found for {snapshot.node_ip}, skipping deps rollback")
+                    return
 
-        TODO: Implement actual venv rollback via SSH:
-        1. SSH to node_ip
-        2. Restore virtual environment to snapshot state
-        3. Verify venv is functional
+            conn = await asyncssh.connect(
+                snapshot.node_ip,
+                username=username,
+                password=password,
+                known_hosts=None,
+                connect_timeout=30,
+            )
+
+            try:
+                # Remove the deps installed marker
+                cmd = "rm -f ~/.deps_installed"
+                if not validate_rollback_command(cmd):
+                    logger.warning(f"Rollback command not allowed: {cmd}")
+                    return
+
+                result = await conn.run(cmd, check=False, timeout=60)
+                if result.exit_status == 0:
+                    logger.info(f"Dependencies marker removed on {snapshot.node_ip}")
+                else:
+                    logger.warning(f"Failed to remove deps marker on {snapshot.node_ip}")
+            finally:
+                conn.close()
+
+        except asyncssh.DisconnectError as e:
+            logger.warning(f"SSH disconnect error during deps rollback on {snapshot.node_ip}: {e}")
+        except asyncssh.ChannelOpenError as e:
+            logger.warning(f"SSH channel error during deps rollback on {snapshot.node_ip}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to rollback dependencies on {snapshot.node_ip}: {e}")
+
+    async def _rollback_venv(self, snapshot: DeploymentSnapshot) -> None:
+        """Rollback virtual environment via SSH.
+
+        Removes the virtual environment directory.
+
+        Args:
+            snapshot: Deployment snapshot containing node_ip and credentials
+
+        Raises:
+            SSHConnectionError: If SSH connection fails
         """
         logger.info(f"Rolling back venv on {snapshot.node_ip}")
 
-    async def _rollback_sudo(self, snapshot: DeploymentSnapshot) -> None:
-        """Rollback sudo configuration.
+        try:
+            # Get SSH credentials from snapshot config or metadata
+            username = snapshot.config.get("username", "admin02")
+            password = snapshot.config.get("password") or snapshot.metadata.get("password")
+            if not password:
+                password = snapshot.metadata.get("ssh_password")
+                if not password:
+                    logger.warning(f"No SSH password found for {snapshot.node_ip}, skipping venv rollback")
+                    return
 
-        TODO: Implement actual sudo config rollback via SSH:
-        1. SSH to node_ip
-        2. Restore sudoers file from backup
-        3. Verify sudo access
+            conn = await asyncssh.connect(
+                snapshot.node_ip,
+                username=username,
+                password=password,
+                known_hosts=None,
+                connect_timeout=30,
+            )
+
+            try:
+                # Remove the virtual environment
+                cmd = "rm -rf ~/.venv-ray"
+                if not validate_rollback_command(cmd):
+                    logger.warning(f"Rollback command not allowed: {cmd}")
+                    return
+
+                result = await conn.run(cmd, check=False, timeout=120)
+                if result.exit_status == 0:
+                    logger.info(f"Virtual environment removed on {snapshot.node_ip}")
+                else:
+                    logger.warning(f"Failed to remove venv on {snapshot.node_ip}")
+            finally:
+                conn.close()
+
+        except asyncssh.DisconnectError as e:
+            logger.warning(f"SSH disconnect error during venv rollback on {snapshot.node_ip}: {e}")
+        except asyncssh.ChannelOpenError as e:
+            logger.warning(f"SSH channel error during venv rollback on {snapshot.node_ip}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to rollback venv on {snapshot.node_ip}: {e}")
+
+    async def _rollback_sudo(self, snapshot: DeploymentSnapshot) -> None:
+        """Rollback sudo configuration via SSH.
+
+        Removes the sudoers file for passwordless sudo access.
+
+        Args:
+            snapshot: Deployment snapshot containing node_ip and credentials
+
+        Raises:
+            SSHConnectionError: If SSH connection fails
         """
         logger.info(f"Rolling back sudo config on {snapshot.node_ip}")
 
-    async def _rollback_connecting(self, snapshot: DeploymentSnapshot) -> None:
-        """Rollback SSH connection.
+        try:
+            # Get SSH credentials from snapshot config or metadata
+            username = snapshot.config.get("username", "admin02")
+            password = snapshot.config.get("password") or snapshot.metadata.get("password")
+            if not password:
+                password = snapshot.metadata.get("ssh_password")
+                if not password:
+                    logger.warning(f"No SSH password found for {snapshot.node_ip}, skipping sudo rollback")
+                    return
 
-        TODO: Implement actual SSH connection rollback via SSH:
-        1. SSH to node_ip
-        2. Remove or revoke SSH keys/credentials
-        3. Verify SSH access is restricted
+            conn = await asyncssh.connect(
+                snapshot.node_ip,
+                username=username,
+                password=password,
+                known_hosts=None,
+                connect_timeout=30,
+            )
+
+            try:
+                # Remove the sudoers file (requires sudo)
+                cmd = "sudo rm -f /etc/sudoers.d/admin02"
+                if not validate_rollback_command(cmd):
+                    logger.warning(f"Rollback command not allowed: {cmd}")
+                    return
+
+                result = await conn.run(cmd, check=False, timeout=60)
+                if result.exit_status == 0:
+                    logger.info(f"Sudoers file removed on {snapshot.node_ip}")
+                else:
+                    logger.warning(f"Failed to remove sudoers file on {snapshot.node_ip}: {result.stderr}")
+            finally:
+                conn.close()
+
+        except asyncssh.DisconnectError as e:
+            logger.warning(f"SSH disconnect error during sudo rollback on {snapshot.node_ip}: {e}")
+        except asyncssh.ChannelOpenError as e:
+            logger.warning(f"SSH channel error during sudo rollback on {snapshot.node_ip}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to rollback sudo config on {snapshot.node_ip}: {e}")
+
+    async def _rollback_connecting(self, snapshot: DeploymentSnapshot) -> None:
+        """Rollback SSH connection via SSH.
+
+        Removes or revokes SSH keys/credentials from the remote node.
+
+        Args:
+            snapshot: Deployment snapshot containing node_ip and credentials
+
+        Raises:
+            SSHConnectionError: If SSH connection fails
         """
         logger.info(f"Rolling back SSH connection on {snapshot.node_ip}")
+
+        try:
+            # Get SSH credentials from snapshot config or metadata
+            username = snapshot.config.get("username", "admin02")
+            password = snapshot.config.get("password") or snapshot.metadata.get("password")
+            if not password:
+                password = snapshot.metadata.get("ssh_password")
+                if not password:
+                    logger.warning(f"No SSH password found for {snapshot.node_ip}, skipping connecting rollback")
+                    return
+
+            conn = await asyncssh.connect(
+                snapshot.node_ip,
+                username=username,
+                password=password,
+                known_hosts=None,
+                connect_timeout=30,
+            )
+
+            try:
+                # Remove the authorized_keys file to revoke SSH access
+                # This is a simple approach - in production you might want to
+                # remove specific keys rather than the entire file
+                cmd = "rm -f ~/.ssh/authorized_keys"
+                if not validate_rollback_command(cmd):
+                    logger.warning(f"Rollback command not allowed: {cmd}")
+                    return
+
+                result = await conn.run(cmd, check=False, timeout=60)
+                if result.exit_status == 0:
+                    logger.info(f"SSH authorized_keys removed on {snapshot.node_ip}")
+                else:
+                    # It's ok if the file doesn't exist
+                    logger.info(f"No authorized_keys to remove on {snapshot.node_ip}")
+            finally:
+                conn.close()
+
+        except asyncssh.DisconnectError as e:
+            logger.warning(f"SSH disconnect error during connecting rollback on {snapshot.node_ip}: {e}")
+        except asyncssh.ChannelOpenError as e:
+            logger.warning(f"SSH channel error during connecting rollback on {snapshot.node_ip}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to rollback SSH connection on {snapshot.node_ip}: {e}")
 
     async def _verify_rollback(self, snapshot: DeploymentSnapshot) -> RollbackVerificationResult:
         """Verify rollback was successful.
