@@ -171,6 +171,10 @@ class SQLiteQuotaStore(QuotaStoreInterface):
                 tasks_per_day INTEGER DEFAULT 50,
                 gpu_hours_per_day REAL DEFAULT 24.0,
                 alert_threshold INTEGER DEFAULT 80,
+                weight REAL DEFAULT 1.0,
+                guaranteed_gpu_count INTEGER DEFAULT 0,
+                guaranteed_cpu_cores INTEGER DEFAULT 0,
+                guaranteed_memory_gb REAL DEFAULT 0.0,
                 parent_quota_id TEXT,
                 is_active INTEGER DEFAULT 1,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -268,10 +272,14 @@ class SQLiteQuotaStore(QuotaStoreInterface):
             "tasks_per_day": row[10],
             "gpu_hours_per_day": row[11],
             "alert_threshold": row[12],
-            "parent_quota_id": row[13],
-            "is_active": bool(row[14]),
-            "created_at": row[15],
-            "updated_at": row[16],
+            "weight": row[13] if len(row) > 13 else 1.0,
+            "guaranteed_gpu_count": row[14] if len(row) > 14 else 0,
+            "guaranteed_cpu_cores": row[15] if len(row) > 15 else 0,
+            "guaranteed_memory_gb": row[16] if len(row) > 16 else 0.0,
+            "parent_quota_id": row[17] if len(row) > 17 else None,
+            "is_active": bool(row[18]) if len(row) > 18 else True,
+            "created_at": row[19] if len(row) > 19 else None,
+            "updated_at": row[20] if len(row) > 20 else None,
         }
 
     def create_quota(self, quota_data: Dict[str, Any]) -> bool:
@@ -282,8 +290,10 @@ class SQLiteQuotaStore(QuotaStoreInterface):
                     quota_id, scope, scope_id, name,
                     cpu_cores, gpu_count, gpu_memory_gb, memory_gb, disk_gb,
                     concurrent_tasks, tasks_per_day, gpu_hours_per_day,
-                    alert_threshold, parent_quota_id, is_active
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    alert_threshold, weight, guaranteed_gpu_count,
+                    guaranteed_cpu_cores, guaranteed_memory_gb,
+                    parent_quota_id, is_active
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 quota_data["quota_id"],
                 quota_data["scope"],
@@ -298,6 +308,10 @@ class SQLiteQuotaStore(QuotaStoreInterface):
                 quota_data.get("tasks_per_day", 50),
                 quota_data.get("gpu_hours_per_day", 24.0),
                 quota_data.get("alert_threshold", 80),
+                quota_data.get("weight", 1.0),
+                quota_data.get("guaranteed_gpu_count", 0),
+                quota_data.get("guaranteed_cpu_cores", 0),
+                quota_data.get("guaranteed_memory_gb", 0.0),
                 quota_data.get("parent_quota_id"),
                 1 if quota_data.get("is_active", True) else 0,
             ))
@@ -803,6 +817,10 @@ class RedisQuotaStore(QuotaStoreInterface):
             "alert_threshold": quota_data.get("alert_threshold", 80),
             "parent_quota_id": quota_data.get("parent_quota_id") or "",
             "is_active": 1 if quota_data.get("is_active", True) else 0,
+            "weight": quota_data.get("weight", 1.0),
+            "guaranteed_gpu_count": quota_data.get("guaranteed_gpu_count", 0),
+            "guaranteed_cpu_cores": quota_data.get("guaranteed_cpu_cores", 0),
+            "guaranteed_memory_gb": quota_data.get("guaranteed_memory_gb", 0.0),
             "created_at": now,
             "updated_at": now,
         })

@@ -286,11 +286,6 @@ class TaskManager:
                 self.update_status(task_id, TaskStatus.FAILED, error=f"Unknown task type: {task.task_type}")
                 return False
         except Exception as e:
-            # 清理已创建的 ProgressReporter Actor
-            try:
-                ray.kill(progress_reporter, no_restart=True)
-            except:
-                pass
             self.update_status(task_id, TaskStatus.FAILED, error=f"Failed to submit task: {str(e)}")
             return False
 
@@ -303,6 +298,13 @@ class TaskManager:
                 self.update_status(task_id, TaskStatus.FAILED, error=result.get("error"))
         except Exception as e:
             self.update_status(task_id, TaskStatus.FAILED, error=str(e))
+
+        # 清理 ProgressReporter Actor（成功或失败都要清理）
+        finally:
+            try:
+                ray.kill(progress_reporter, no_restart=True)
+            except:
+                pass
 
         return True
 

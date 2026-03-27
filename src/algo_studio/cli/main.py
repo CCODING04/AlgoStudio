@@ -138,7 +138,7 @@ def host():
 def host_status():
     """Get host status"""
     try:
-        response = requests.get(f"{API_BASE}/api/hosts/status")
+        response = requests.get(f"{API_BASE}/api/hosts")
         response.raise_for_status()
         data = response.json()
         click.echo(json.dumps(data, indent=2))
