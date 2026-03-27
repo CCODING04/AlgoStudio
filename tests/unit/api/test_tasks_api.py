@@ -360,6 +360,29 @@ class TestTasksAPIRBAC:
         response = await client.get("/api/tasks")
         assert response.status_code == 401
 
+    @pytest.mark.asyncio
+    async def test_tasks_api_rejects_post_without_auth_header(self, client):
+        """Test that POST /api/tasks without auth header is rejected with 401."""
+        response = await client.post(
+            "/api/tasks",
+            json={
+                "task_type": "train",
+                "algorithm_name": "simple_classifier",
+                "algorithm_version": "v1",
+            },
+        )
+        assert response.status_code == 401
+        assert "UNAUTHORIZED" in response.json()["detail"]["error"]["code"]
+        assert "X-User-ID" in response.json()["detail"]["error"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_tasks_api_rejects_delete_without_auth_header(self, client):
+        """Test that DELETE /api/tasks/{id} without auth header is rejected with 401."""
+        response = await client.delete("/api/tasks/some-task-id")
+        assert response.status_code == 401
+        assert "UNAUTHORIZED" in response.json()["detail"]["error"]["code"]
+        assert "X-User-ID" in response.json()["detail"]["error"]["message"]
+
 
 class TestDeleteTaskEndpoint:
     """Tests for DELETE /api/tasks/{id} endpoint."""
@@ -413,8 +436,8 @@ class TestDeleteTaskEndpoint:
         assert "not found" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
-    async def test_delete_task_already_completed(self, client, auth_headers):
-        """Test deleting an already completed task fails with 400."""
+    async def test_delete_task_running_fails(self, client, auth_headers):
+        """Test deleting a running task fails with 400."""
         # Create a task first
         create_response = await client.post(
             "/api/tasks",
