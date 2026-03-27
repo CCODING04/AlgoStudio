@@ -1,9 +1,11 @@
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 import uuid
 from datetime import datetime
 import ray
+
+from algo_studio.api.pagination import CursorParams, encode_cursor, decode_cursor
 
 
 @ray.remote
@@ -127,6 +129,57 @@ class TaskManager:
             return [t for t in self._tasks.values() if t.status == status]
         return list(self._tasks.values())
 
+    def list_tasks_paginated(
+        self,
+        status: TaskStatus | None = None,
+        cursor: str | None = None,
+        limit: int = 20,
+    ) -> Tuple[list[Task], str | None]:
+        """列出任务（游标分页）
+
+        Args:
+            status: Optional status filter
+            cursor: Pagination cursor (base64 encoded)
+            limit: Number of items per page (max 100)
+
+        Returns:
+            Tuple of (tasks, next_cursor)
+            - tasks: List of tasks for current page
+            - next_cursor: Cursor for next page (None if last page)
+        """
+        limit = min(limit, 100)  # Cap at 100
+
+        # Get all tasks, sorted by created_at descending (newest first)
+        all_tasks = self.list_tasks(status=status)
+        all_tasks.sort(key=lambda t: t.created_at, reverse=True)
+
+        # Decode cursor to get starting point
+        start_idx = 0
+        if cursor:
+            try:
+                decoded = decode_cursor(cursor)
+                # Find the task with the cursor's sort value
+                for i, t in enumerate(all_tasks):
+                    if t.created_at.isoformat() == decoded.sort_value and t.task_id == decoded.id:
+                        start_idx = i + 1
+                        break
+            except ValueError:
+                pass  # Invalid cursor, start from beginning
+
+        # Get page of tasks
+        page_tasks = all_tasks[start_idx:start_idx + limit]
+
+        # Determine next cursor
+        next_cursor = None
+        if len(all_tasks) > start_idx + limit:
+            last_task = page_tasks[-1]
+            next_cursor = encode_cursor(
+                last_task.created_at.isoformat(),
+                last_task.task_id
+            )
+
+        return page_tasks, next_cursor
+
     def update_status(self, task_id: str, status: TaskStatus, result: dict | None = None, error: str | None = None, progress: int | None = None):
         """更新任务状态"""
         task = self._tasks.get(task_id)
@@ -150,6 +203,13 @@ class TaskManager:
             task.progress = progress
             # 可选：存储 description 用于显示
 
+    def delete_task(self, task_id: str) -> bool:
+        """删除指定任务"""
+        if task_id in self._tasks:
+            del self._tasks[task_id]
+            return True
+        return False
+
     def sync_progress(self, task_id: str):
         """从共享存储同步进度"""
         task = self._tasks.get(task_id)
@@ -172,6 +232,8 @@ class TaskManager:
             idle_nodes = [n for n in nodes if n.status == "idle"]
 
         if not idle_nodes:
+            # No nodes available - mark task as failed with appropriate error
+            self.update_status(task_id, TaskStatus.FAILED, error="No available nodes in Ray cluster")
             return False
 
         # 选择第一个空闲节点

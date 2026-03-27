@@ -1,8 +1,9 @@
 # src/algo_studio/api/routes/tasks.py
-from fastapi import APIRouter, HTTPException
-from algo_studio.api.models import TaskCreateRequest, TaskResponse, TaskListResponse
+from fastapi import APIRouter, HTTPException, Query
+from algo_studio.api.models import TaskCreateRequest, TaskResponse, TaskListResponse, TaskPaginatedResponse
 from algo_studio.core.task import TaskManager, TaskType, TaskStatus
 from algo_studio.core.ray_client import RayClient
+from algo_studio.api.middleware.rbac import require_permission, Permission
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -41,9 +42,17 @@ async def create_task(request: TaskCreateRequest):
     )
 
 
-@router.get("", response_model=TaskListResponse)
-async def list_tasks(status: str | None = None):
-    """列出所有任务"""
+@router.get("", response_model=TaskPaginatedResponse)
+async def list_tasks(
+    status: str | None = None,
+    cursor: str | None = Query(default=None, description="Pagination cursor"),
+    limit: int = Query(default=20, ge=1, le=100, description="Items per page"),
+):
+    """列出所有任务（游标分页）
+
+    使用游标分页替代传统的 offset/limit，支持高效翻页。
+    返回 next_cursor 用于获取下一页。
+    """
     filter_status = None
     if status:
         try:
@@ -51,25 +60,33 @@ async def list_tasks(status: str | None = None):
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
 
-    tasks = task_manager.list_tasks(status=filter_status)
-    return TaskListResponse(
-        tasks=[
-            TaskResponse(
-                task_id=t.task_id,
-                task_type=t.task_type.value,
-                algorithm_name=t.algorithm_name,
-                algorithm_version=t.algorithm_version,
-                status=t.status.value,
-                created_at=t.created_at.isoformat(),
-                started_at=t.started_at.isoformat() if t.started_at else None,
-                completed_at=t.completed_at.isoformat() if t.completed_at else None,
-                assigned_node=t.assigned_node,
-                error=t.error,
-                progress=t.progress
-            )
-            for t in tasks
-        ],
-        total=len(tasks)
+    tasks, next_cursor = task_manager.list_tasks_paginated(
+        status=filter_status,
+        cursor=cursor,
+        limit=limit
+    )
+
+    task_responses = [
+        TaskResponse(
+            task_id=t.task_id,
+            task_type=t.task_type.value,
+            algorithm_name=t.algorithm_name,
+            algorithm_version=t.algorithm_version,
+            status=t.status.value,
+            created_at=t.created_at.isoformat(),
+            started_at=t.started_at.isoformat() if t.started_at else None,
+            completed_at=t.completed_at.isoformat() if t.completed_at else None,
+            assigned_node=t.assigned_node,
+            error=t.error,
+            progress=t.progress
+        )
+        for t in tasks
+    ]
+
+    return TaskPaginatedResponse(
+        items=task_responses,
+        next_cursor=next_cursor,
+        has_more=next_cursor is not None,
     )
 
 
@@ -128,3 +145,17 @@ async def dispatch_task(task_id: str):
         error=task.error,
         progress=task.progress
     )
+
+
+@router.delete("/{task_id}")
+async def delete_task(task_id: str):
+    """删除指定任务"""
+    task = task_manager.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    if task.status == TaskStatus.RUNNING:
+        raise HTTPException(status_code=400, detail=f"Cannot delete running task")
+
+    task_manager.delete_task(task_id)
+    return {"message": "Task deleted successfully", "task_id": task_id}
