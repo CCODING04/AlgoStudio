@@ -1,0 +1,123 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  PYTHON_VERSION: '3.10'
+  UV_VERSION: '0.5.11'
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'staging'
+    timeout-minutes: 30
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          uv-version: ${{ env.UV_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          uv venv .venv
+          source .venv/bin/activate
+          uv pip install -e .
+
+      - name: Run SSH deployment test
+        run: |
+          source .venv/bin/activate
+          PYTHONPATH=scripts python -c "
+            import asyncio
+            from scripts.ssh_deploy import SSHDeployer, DeployWorkerRequest
+
+            async def test():
+                deployer = SSHDeployer()
+                request = DeployWorkerRequest(
+                    node_ip='\${{ secrets.STAGING_WORKER_IP }}',
+                    username='\${{ secrets.STAGING_SSH_USERNAME }}',
+                    password='\${{ secrets.SSH_PASSWORD }}',
+                    head_ip='\${{ secrets.STAGING_HEAD_IP }}',
+                )
+                task_id = await deployer.deploy_worker(request)
+                print(f'Task ID: {task_id}')
+                return task_id
+
+            asyncio.run(test())
+          "
+
+  # Production deployment uses GitHub's built-in environment protection rules
+# Configure in: Settings > Environments > production
+# Required reviewers must approve before this job runs
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'production'
+    timeout-minutes: 30
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          uv-version: ${{ env.UV_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          uv venv .venv
+          source .venv/bin/activate
+          uv pip install -e .
+
+      - name: Run SSH deployment (Production)
+        run: |
+          source .venv/bin/activate
+          PYTHONPATH=scripts python -c "
+            import asyncio
+            from scripts.ssh_deploy import SSHDeployer, DeployWorkerRequest
+
+            async def test():
+                deployer = SSHDeployer()
+                request = DeployWorkerRequest(
+                    node_ip='\${{ secrets.PROD_WORKER_IP }}',
+                    username='\${{ secrets.PROD_SSH_USERNAME }}',
+                    password='\${{ secrets.SSH_PASSWORD }}',
+                    head_ip='\${{ secrets.PROD_HEAD_IP }}',
+                )
+                task_id = await deployer.deploy_worker(request)
+                print(f'Task ID: {task_id}')
+                return task_id
+
+            asyncio.run(test())
+          "

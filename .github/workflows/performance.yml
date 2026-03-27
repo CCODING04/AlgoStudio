@@ -1,0 +1,133 @@
+name: Performance Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_category:
+        description: 'Test category to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - api
+          - sse
+          - database
+          - gpu
+  schedule:
+    # Run performance tests weekly on Sunday at 2 AM
+    - cron: '0 2 * * 0'
+  push:
+    branches: [ master, develop ]
+    paths:
+      - 'tests/performance/**'
+      - 'monitoring/prometheus/**'
+      - 'src/algo_studio/**'
+
+env:
+  PYTHON_VERSION: '3.10'
+  UV_VERSION: '0.5.11'
+
+jobs:
+  performance-tests:
+    name: Performance Tests (${{ inputs.test_category || 'all' }})
+    runs-on: self-hosted
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          uv-version: ${{ env.UV_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          uv venv .venv
+          source .venv/bin/activate
+          uv pip install -e .
+          uv pip install pytest pytest-asyncio requests sseclient-py psutil pynvml pytest-benchmark
+
+      - name: Check API availability
+        run: |
+          source .venv/bin/activate
+          echo "Checking API availability..."
+          for i in {1..5}; do
+            if curl -s http://${{ secrets.RAY_HEAD_IP }}:8000/api/tasks > /dev/null 2>&1; then
+              echo "API is available"
+              break
+            fi
+            echo "Waiting for API... attempt $i/5"
+            sleep 5
+          done
+
+      - name: Run API Performance Tests
+        if: inputs.test_category == 'all' || inputs.test_category == 'api' || inputs.test_category == ''
+        run: |
+          source .venv/bin/activate
+          PYTHONPATH=src pytest tests/performance/test_api_load.py -v -m performance --tb=short --timeout=300
+
+      - name: Run SSE Performance Tests
+        if: inputs.test_category == 'all' || inputs.test_category == 'sse' || inputs.test_category == ''
+        run: |
+          source .venv/bin/activate
+          PYTHONPATH=src pytest tests/performance/test_sse_performance.py -v -m performance --tb=short --timeout=300
+
+      - name: Run Database Performance Tests
+        if: inputs.test_category == 'all' || inputs.test_category == 'database' || inputs.test_category == ''
+        run: |
+          source .venv/bin/activate
+          PYTHONPATH=src pytest tests/performance/ -v -k "database or sqlite or wal" --tb=short --timeout=300
+
+      - name: Run GPU Performance Tests
+        if: inputs.test_category == 'all' || inputs.test_category == 'gpu' || inputs.test_category == ''
+        run: |
+          source .venv/bin/activate
+          PYTHONPATH=src pytest tests/performance/ -v -k "gpu or training" --tb=short --timeout=300
+
+      - name: Run Benchmark Baseline Comparison
+        if: inputs.test_category == 'all' || inputs.test_category == ''
+        run: |
+          source .venv/bin/activate
+          PYTHONPATH=src python tests/performance/run_benchmarks.py --all --report --output perf_report.json
+
+      - name: Upload Performance Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-report-${{ github.run_number }}
+          path: perf_report.json
+          retention-days: 30
+
+  performance-summary:
+    name: Performance Summary
+    needs: performance-tests
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Summary
+        run: |
+          echo "## Performance Test Results"
+          echo "Workflow Run: ${{ github.run_number }}"
+          echo "Status: ${{ needs.performance-tests.result }}"
+          echo ""
+          if [ -f "artifacts/performance-report-${{ github.run_number }}/perf_report.json" ]; then
+            echo "### Detailed Report Available"
+            cat "artifacts/performance-report-${{ github.run_number }}/perf_report.json"
+          else
+            echo "No detailed report available"
+          fi

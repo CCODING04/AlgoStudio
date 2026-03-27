@@ -1,0 +1,127 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+    branches: [ master, develop ]
+
+env:
+  PYTHON_VERSION: '3.10'
+  UV_VERSION: '0.5.11'
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          uv-version: ${{ env.UV_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          uv venv .venv
+          source .venv/bin/activate
+          uv pip install -e .
+          uv pip install pytest pytest-asyncio pytest-cov httpx
+
+      - name: Run unit tests
+        run: |
+          source .venv/bin/activate
+          PYTHONPATH=src pytest tests/unit/ -v --cov=src/algo_studio --cov-report=xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          uv-version: ${{ env.UV_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          uv venv .venv
+          source .venv/bin/activate
+          uv pip install -e .
+          uv pip install pytest pytest-asyncio httpx aiosqlite
+
+      - name: Run integration tests
+        run: |
+          source .venv/bin/activate
+          PYTHONPATH=src pytest tests/integration/ -v
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          uv-version: ${{ env.UV_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          uv venv .venv
+          source .venv/bin/activate
+          uv pip install ruff
+
+      - name: Run ruff linter
+        run: |
+          source .venv/bin/activate
+          ruff check src/
+
+  test-summary:
+    name: Test Summary
+    needs: [unit-tests, integration-tests, lint]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Summary
+        run: |
+          echo "## Test Results Summary"
+          echo "- Unit Tests: ${{ needs.unit-tests.result }}"
+          echo "- Integration Tests: ${{ needs.integration-tests.result }}"
+          echo "- Lint: ${{ needs.lint.result }}"

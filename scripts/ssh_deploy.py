@@ -180,13 +180,14 @@ def _get_known_hosts() -> List[str]:
     返回 ~/.ssh/known_hosts 的路径列表，用于 SSH host key 验证
 
     Returns:
-        List containing the known_hosts file path
+        List containing the known_hosts file path, or None to use default strict verification
     """
     known_hosts_path = SSHDeployConfig.SSH_KEY_DIR / "known_hosts"
     if known_hosts_path.exists():
         return [str(known_hosts_path)]
-    # 如果 known_hosts 不存在，返回空列表，让 SSH client 使用严格的默认验证
-    return []
+    # 如果 known_hosts 不存在，返回 None 让 asyncssh 使用默认的严格验证
+    # 切勿返回空列表 []，那会禁用 host key 验证！
+    return None
 
 
 # ==============================================================================
@@ -226,7 +227,7 @@ class SSHConnectionManager:
 
         # 状态机核心
         self._state: ConnectionState = ConnectionState.DISCONNECTED
-        self._conn: Optional[asyncssh.Connection] = None
+        self._conn: Optional[asyncssh.SSHClientConnection] = None
         self._retry_count: int = 0
         self._lock: asyncio.Lock = asyncio.Lock()
 
@@ -265,7 +266,7 @@ class SSHConnectionManager:
             except Exception:
                 pass
 
-    async def connect(self) -> asyncssh.Connection:
+    async def connect(self) -> asyncssh.SSHClientConnection:
         """建立 SSH 连接"""
         async with self._lock:
             if self._state == ConnectionState.IDLE and self._conn and not self._conn.is_closed():
@@ -335,7 +336,7 @@ class SSHConnectionManager:
         cmd: str,
         check: bool = True,
         timeout: int = SSHDeployConfig.COMMAND_TIMEOUT,
-    ) -> asyncssh.Result:
+    ) -> asyncssh.SSHCompletedProcess:
         """执行命令（自动重连）"""
         if self._state != ConnectionState.IDLE:
             await self.connect()
@@ -367,7 +368,7 @@ class SSHConnectionManager:
         check: bool,
         timeout: int,
         retry_count: int = 0,
-    ) -> asyncssh.Result:
+    ) -> asyncssh.SSHCompletedProcess:
         """重试执行命令"""
         if retry_count >= self.max_retries:
             raise SSHConnectionError(f"命令执行失败，已重试 {retry_count} 次")
@@ -423,7 +424,7 @@ class SSHConnectionPool:
         self._known_hosts = _get_known_hosts()
 
         # 每个主机的连接队列
-        self._available: Dict[str, List[asyncssh.Connection]] = defaultdict(list)
+        self._available: Dict[str, List[asyncssh.SSHClientConnection]] = defaultdict(list)
         self._active_count = 0
         self._lock = asyncio.Lock()
 
@@ -432,7 +433,7 @@ class SSHConnectionPool:
         host: str,
         username: str,
         password: str = None,
-    ) -> asyncssh.Connection:
+    ) -> asyncssh.SSHClientConnection:
         """获取一个 SSH 连接（原子操作）"""
         # 首先尝试从可用连接池获取
         async with self._lock:
@@ -462,7 +463,7 @@ class SSHConnectionPool:
 
         return conn
 
-    async def release_connection(self, host: str, conn: asyncssh.Connection):
+    async def release_connection(self, host: str, conn: asyncssh.SSHClientConnection):
         """释放连接回池中（原子操作，防止竞态条件）"""
         async with self._lock:
             # 原子性检查和修改：先检查连接是否关闭，再决定如何处理
@@ -518,7 +519,7 @@ def get_ssh_pool() -> SSHConnectionPool:
 class IdempotencyChecker:
     """检测已完成的步骤，避免重复执行"""
 
-    def __init__(self, conn: asyncssh.Connection):
+    def __init__(self, conn: asyncssh.SSHClientConnection):
         self.conn = conn
 
     async def check_step(self, step_key: str) -> bool:
@@ -581,7 +582,7 @@ class IdempotencyChecker:
 class RollbackManager:
     """部署回滚管理器"""
 
-    def __init__(self, conn: asyncssh.Connection, steps_completed: List[str]):
+    def __init__(self, conn: asyncssh.SSHClientConnection, steps_completed: List[str]):
         self.conn = conn
         self.steps_completed = steps_completed
 
@@ -1072,7 +1073,7 @@ class SSHDeployer:
         request: DeployWorkerRequest,
         cmd: str,
         check: bool = True,
-    ) -> asyncssh.Result:
+    ) -> asyncssh.SSHCompletedProcess:
         """运行命令（使用连接池，带命令验证）"""
         # 命令验证
         if not validate_command(cmd):
