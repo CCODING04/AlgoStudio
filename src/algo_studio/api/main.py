@@ -1,12 +1,16 @@
 # src/algo_studio/api/main.py
 from fastapi import FastAPI
 from algo_studio.api.routes import tasks, hosts, cluster
+from algo_studio.api.middleware.rbac import RBACMiddleware
 
 app = FastAPI(
     title="AlgoStudio API",
     description="AI Algorithm Platform API",
     version="0.2.0"
 )
+
+# Add RBAC middleware for permission checking
+app.add_middleware(RBACMiddleware)
 
 app.include_router(tasks.router)
 app.include_router(hosts.router)

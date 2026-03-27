@@ -2,6 +2,9 @@
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 
+from algo_studio.api.pagination import PaginatedResponse
+
+
 class TaskCreateRequest(BaseModel):
     task_type: str = Field(..., description="train/infer/verify")
     algorithm_name: str = Field(..., description="算法名称")
@@ -24,3 +27,7 @@ class TaskResponse(BaseModel):
 class TaskListResponse(BaseModel):
     tasks: List[TaskResponse]
     total: int
+
+class TaskPaginatedResponse(PaginatedResponse[TaskResponse]):
+    """Paginated task response using cursor pagination."""
+    pass
