@@ -77,8 +77,8 @@ Phase 1 已完成，以下问题已解决：
 
 | ID | 问题 | 严重性 | 组件 | 解决方案 | 状态 |
 |----|------|---------|------|---------|------|
-| A1 | ProgressReporter Actor 在成功路径未清理 | Medium | task.py | 添加 finally 块清理 actor | 待处理 |
-| A2 | hosts.py API 缺少单元测试 | Medium | test | 添加单元测试覆盖 | 待处理 |
+| A1 | ProgressReporter Actor 在成功路径未清理 | Medium | task.py | 添加 finally 块清理 actor | ✅ 已完成 |
+| A2 | hosts.py API 缺少单元测试 | Medium | test | 添加单元测试覆盖 | ✅ 已完成 |
 
 ### A1 详细说明
 

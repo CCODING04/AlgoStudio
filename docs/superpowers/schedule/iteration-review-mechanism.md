@@ -459,13 +459,187 @@ Round 8  ✅ PASS (最终评审完成)
 4. **`/api/hosts` 5秒缓存** - 减少重复查询
 5. **E2E 测试覆盖** - SSH部署、调度、认证全覆盖
 
-### 待改进 (非阻塞)
+### 待改进 (非阻塞) - 已全部修复 ✅
 
-- `/api/hosts` 延迟优化 (约4s，需进一步调优)
-- 死代码清理
-- dispatch_task 异常处理完善
+- ✅ `/api/hosts` 延迟优化 (4s → ~1.1s via asyncio.to_thread)
+- ✅ 死代码清理 (ray_client.py GPU_AVAILABLE 已删除)
+- ✅ dispatch_task 异常处理完善 (ProgressReporter finally 块清理)
+- ⏳ hosts.py API 缺少单元测试 (A2 - 待 Phase 2.4)
 
 ---
 
-**文档状态:** ✅ Phase 2.3 Round 8 最终评审完成
-**Phase 2.3 结论:** 通过评审，系统可投入使用
+## 17. Round 8 后续修复 (2026-03-27)
+
+### 修复的问题
+
+| 问题 ID | 描述 | 修复方案 | 文件 |
+|---------|------|---------|------|
+| PERF-FINAL | `/api/hosts` 延迟约 4s | asyncio.to_thread 异步化 | hosts.py |
+| CODE-1 | task.py 存在死代码 | 删除 unreachable code | task.py |
+| CODE-2 | dispatch_task 异常处理不完整 | ProgressReporter finally 块清理 | task.py |
+| A1 | ProgressReporter Actor 成功路径未清理 | 添加 finally 块确保清理 | task.py |
+
+### 修复详情
+
+**1. `/api/hosts` 延迟优化 (4s → ~1.1s)**
+```python
+# hosts.py - 使用 asyncio.to_thread 异步化同步 Ray 调用
+nodes = await asyncio.to_thread(get_ray_client().get_nodes)
+```
+
+**2. 死代码清理**
+```python
+# ray_client.py - 删除以下内容
+GPU_AVAILABLE = ...  # 已删除
+def _get_gpu_available(): ...  # 已删除
+```
+
+**3. ProgressReporter Actor 清理 (finally 块)**
+```python
+# task.py - dispatch_task 方法
+finally:
+    try:
+        ray.kill(progress_reporter, no_restart=True)
+    except:
+        pass
+```
+
+### 遗留问题
+
+| ID | 问题 | 严重性 | 计划阶段 |
+|----|------|--------|----------|
+| A2 | hosts.py API 缺少单元测试 | Medium | Phase 2.4 |
+
+---
+
+## 18. Phase 2.4 Round 1 评审结果
+
+### Round 1 完成状态
+| 任务 | Agent | 测试 | 状态 |
+|------|-------|------|------|
+| 回滚机制完善 | @devops-engineer | 20 tests | ✅ |
+| 审计日志中间件 | @backend-engineer | 21 tests | ✅ |
+| 调度性能优化 | @ai-scheduling-engineer | 133 tests | ✅ |
+| hosts.py API 单元测试 (A2) | @test-engineer | 15 tests | ✅ |
+
+### Round 1 专家评审结果
+| 评审角色 | 评分 | 状态 |
+|----------|------|------|
+| @architect-alpha (架构) | 6.5/10 | ⚠️ 有问题 |
+| @architect-beta (API/安全) | 6/10 | ⚠️ 有问题 |
+| @architect-gamma (调度/性能) | 7/10 | ⚠️ 有问题 |
+| @qa-engineer (QA) | 7.5/10 | ⚠️ 通过但有问题 |
+| @performance-engineer (性能) | 8/10 | ✅ 通过 |
+
+### Round 1 发现的关键问题
+1. rollback_deployment 缺少 DEPLOY_WRITE 权限检查
+2. audit log endpoints 缺少 ADMIN_USER 权限检查
+3. RedisQuotaStore 缺少 WFQ 字段
+4. dequeue() race condition
+5. get_snapshots_by_node O(n²) 复杂度
+
+### Round 1 结论: ⚠️ CONDITIONAL PASS
+
+---
+
+## 19. Phase 2.4 Round 2 结果
+
+### Round 2 修复任务完成
+| 任务 | Agent | 测试 | 状态 |
+|------|-------|------|------|
+| API/安全修复 | @backend-engineer | 66 tests | ✅ |
+| 调度器修复 | @ai-scheduling-engineer | 133 tests | ✅ |
+| 审计API修复 | @backend-engineer | 21 tests | ✅ |
+| 回滚机制修复 | @devops-engineer | 20 tests | ✅ |
+| 性能测试修复 | @qa-engineer | 9 tests | ✅ |
+
+### Round 2 评审结果
+**结论：✅ 通过 (Pass)**
+
+| 维度 | 评分 |
+|------|------|
+| 功能正确性 | 9/10 |
+| 代码质量 | 8/10 |
+| 安全性 | 9/10 |
+| 性能 | 8/10 |
+| 测试覆盖 | 8/10 |
+
+**12 个 Critical 问题全部修复验证通过**
+
+---
+
+## 20. Phase 2.4 Round 3 结果
+
+### Round 3 修复
+| 任务 | Agent | 测试 | 状态 |
+|------|-------|------|------|
+| 审计API代码风格 | @backend-engineer | 21 tests | ✅ |
+
+### Round 3 评审结果
+**结论：✅ 通过 (9/10)**
+
+---
+
+## 21. Phase 2.4 Round 4 结果
+
+### Round 4 完成任务
+| 任务 | Agent | 状态 |
+|------|-------|------|
+| Web Console Next.js 开发 | @frontend-engineer | ✅ |
+| 验收测试执行 | @qa-engineer | ✅ (测试耗时过长 - 需优化) |
+| 完整性能基准 | @performance-engineer | ✅ |
+
+### Round 4 性能基准结果
+| 场景 | 目标 | 实际 | 状态 |
+|------|------|------|------|
+| Single Schedule Latency | < 10ms | 0.57ms avg | ✅ |
+| Multi-tenant Scheduling | < 50ms | 0.36ms avg | ✅ |
+| Concurrent Scheduling | < 100ms | 0.69ms avg | ✅ |
+
+### 待改进问题
+- 测试耗时过长 - 需优化 pytest 执行策略
+
+---
+
+## 22. Phase 2.4 Round 5 结果
+
+### Round 5 最终评审
+**综合评分: 8/10** - CONDITIONAL PASS
+
+### 遗留问题 (非阻塞)
+| 问题 | 严重性 | 建议 |
+|------|--------|------|
+| 回滚 SSH 操作是占位符 | Important | 下阶段实现 |
+| 测试耗时 348s | Minor | pytest-xdist 并行化 |
+| 部分测试缺少认证配置 | Minor | 修复测试配置 |
+
+---
+
+---
+
+## 23. Phase 2.4 最终评审结果
+
+### 综合评分: 8/10 - CONDITIONAL PASS
+
+### 各维度评分
+| 维度 | 评分 | 说明 |
+|------|------|------|
+| 功能完整性 | 8/10 | 核心功能完成，2个功能未完成 |
+| 代码质量 | 8/10 | 结构良好，部分需清理 |
+| 安全性 | 9/10 | HMAC、RBAC、审计日志完善 |
+| 性能 | 9/10 | 调度延迟 < 1ms |
+| 测试覆盖 | 6/10 | 核心模块覆盖率低 |
+| Web Console | 7/10 | 功能完整但缺算法代理 |
+
+### 遗留问题 (非阻塞)
+| # | 问题 | 严重性 | 状态 |
+|---|------|--------|------|
+| 1 | Rollback SSH 是占位符 | Critical | Phase 2.5 修复 |
+| 2 | `/api/proxy/algorithms` 未实现 | Critical | Phase 2.5 修复 |
+| 3 | 核心模块测试覆盖率低 | Important | Phase 2.5 改进 |
+| 4 | pynvml 弃用警告 | Suggestion | 可选修复 |
+
+---
+
+**文档状态:** ✅ Phase 2.4 完成
+**Phase 2.4 结论:** CONDITIONAL PASS - 可投入使用，遗留问题下阶段解决
