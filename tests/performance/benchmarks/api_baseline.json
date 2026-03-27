@@ -1,0 +1,43 @@
+{
+  "version": "v1.0",
+  "date": "2026-03-26",
+  "description": "API performance baseline for AlgoStudio",
+  "targets": {
+    "GET /api/tasks": {
+      "p50_ms": 20,
+      "p95_ms": 50,
+      "p99_ms": 80,
+      "max_ms": 100
+    },
+    "GET /api/tasks/{id}": {
+      "p50_ms": 10,
+      "p95_ms": 30,
+      "p99_ms": 50,
+      "max_ms": 80
+    },
+    "POST /api/tasks": {
+      "p50_ms": 50,
+      "p95_ms": 100,
+      "p99_ms": 150,
+      "max_ms": 200
+    },
+    "GET /api/hosts": {
+      "p50_ms": 15,
+      "p95_ms": 50,
+      "p99_ms": 80,
+      "max_ms": 100
+    },
+    "POST /api/tasks/{id}/dispatch": {
+      "p50_ms": 100,
+      "p95_ms": 300,
+      "p99_ms": 450,
+      "max_ms": 500
+    }
+  },
+  "sse_targets": {
+    "max_concurrent_connections": 100,
+    "connection_stability_minutes": 30,
+    "reconnect_time_ms": 3000,
+    "message_latency_ms": 500
+  }
+}

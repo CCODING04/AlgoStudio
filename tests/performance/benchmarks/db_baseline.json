@@ -1,0 +1,21 @@
+{
+  "version": "v1.0",
+  "date": "2026-03-26",
+  "description": "Database performance baseline for AlgoStudio",
+  "targets": {
+    "sqlite_wal": {
+      "single_write_p99_ms": 50,
+      "concurrent_10_write_p99_ms": 100,
+      "read_100_records_p95_ms": 100
+    },
+    "redis": {
+      "set_operation_p99_ms": 5,
+      "get_operation_p99_ms": 5,
+      "combined_p99_ms": 10
+    }
+  },
+  "test_conditions": {
+    "concurrent_writers": 10,
+    "total_operations": 100
+  }
+}

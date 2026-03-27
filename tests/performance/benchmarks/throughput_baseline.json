@@ -1,0 +1,28 @@
+{
+  "version": "v1.0",
+  "date": "2026-03-26",
+  "description": "Data throughput baseline for AlgoStudio",
+  "targets": {
+    "dataset_loading": {
+      "coco_small_1000_images_s": 10,
+      "coco_full_s": 60,
+      "incremental_100_images_s": 5
+    },
+    "dvc_transfer": {
+      "push_mb_per_s": 50,
+      "pull_mb_per_s": 50,
+      "incremental_10_images_s": 30
+    },
+    "juicefs": {
+      "sequential_read_mb_per_s": 500,
+      "sequential_write_mb_per_s": 300,
+      "random_read_4kb_mb_per_s": 200,
+      "metadata_operation_ms": 10
+    }
+  },
+  "test_file_size_gb": 1,
+  "test_conditions": {
+    "network_stable": true,
+    "no_rate_limiting": true
+  }
+}
