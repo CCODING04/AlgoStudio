@@ -4,7 +4,7 @@ from sse_starlette.sse import EventSourceResponse
 import asyncio
 import json
 import ray
-from algo_studio.api.models import TaskCreateRequest, TaskResponse, TaskListResponse, TaskPaginatedResponse
+from algo_studio.api.models import TaskCreateRequest, TaskResponse, TaskListResponse, TaskPaginatedResponse, DispatchRequest
 from algo_studio.core.task import TaskManager, TaskType, TaskStatus, get_progress_store
 from algo_studio.core.ray_client import RayClient
 from algo_studio.api.middleware.rbac import Permission
@@ -125,8 +125,13 @@ async def get_task(task_id: str):
 
 
 @router.post("/{task_id}/dispatch")
-async def dispatch_task(task_id: str):
-    """分发任务到 Ray 集群执行（异步模式，立即返回）"""
+async def dispatch_task(task_id: str, request: DispatchRequest = None):
+    """分发任务到 Ray 集群执行（异步模式，立即返回）
+
+    支持两种调度模式:
+    - auto: 调度器自动选择节点
+    - manual: 用户指定节点（通过 node_id）
+    """
     task = task_manager.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
@@ -134,29 +139,34 @@ async def dispatch_task(task_id: str):
     if task.status != TaskStatus.PENDING:
         raise HTTPException(status_code=400, detail=f"Task already dispatched, status: {task.status.value}")
 
+    # 解析调度参数
+    scheduling_mode = "auto"
+    node_id = None
+    if request:
+        scheduling_mode = request.scheduling_mode if request.scheduling_mode else "auto"
+        node_id = request.node_id
+
+    # 手动模式验证
+    if scheduling_mode == "manual" and not node_id:
+        raise HTTPException(status_code=400, detail="手动调度模式需要指定 node_id")
+
     # 更新状态为 RUNNING（让客户端立即能看到状态变化）
     task_manager.update_status(task_id, TaskStatus.RUNNING)
 
     # 在后台线程中执行 Ray 任务（不阻塞 API）
     import asyncio
     asyncio.create_task(
-        asyncio.to_thread(task_manager.dispatch_task, task_id, get_ray_client())
+        asyncio.to_thread(task_manager.dispatch_task, task_id, get_ray_client(), node_id, scheduling_mode)
     )
 
     task = task_manager.get_task(task_id)
-    return TaskResponse(
-        task_id=task.task_id,
-        task_type=task.task_type.value,
-        algorithm_name=task.algorithm_name,
-        algorithm_version=task.algorithm_version,
-        status=task.status.value,
-        created_at=task.created_at.isoformat(),
-        started_at=task.started_at.isoformat() if task.started_at else None,
-        completed_at=task.completed_at.isoformat() if task.completed_at else None,
-        assigned_node=task.assigned_node,
-        error=task.error,
-        progress=task.progress
-    )
+    return {
+        "task_id": task.task_id,
+        "status": task.status.value,
+        "scheduling_mode": scheduling_mode,
+        "assigned_node": task.assigned_node,
+        "message": f"Task dispatched in {scheduling_mode} mode"
+    }
 
 
 @router.delete("/{task_id}")
@@ -182,6 +192,7 @@ async def get_task_progress(task_id: str, request: Request):
     fails, or the client disconnects.
 
     Event types:
+    - allocated: Task has been assigned to a node
     - progress: Regular progress update with current percentage
     - completed: Task finished successfully
     - failed: Task failed with error message
@@ -210,6 +221,7 @@ async def get_task_progress(task_id: str, request: Request):
         last_status = None
         consecutive_empty = 0
         max_empty_count = 30  # 30 seconds before heartbeat
+        allocated_sent = False  # Track if allocated event has been sent
 
         while True:
             try:
@@ -250,6 +262,26 @@ async def get_task_progress(task_id: str, request: Request):
                         })
                     }
                     break
+
+                # Send allocated event if task has been assigned to a node
+                if not allocated_sent and current_task.assigned_node:
+                    try:
+                        allocation_info = ray.get(progress_store.get_allocation.remote(task_id))
+                    except Exception:
+                        allocation_info = None
+
+                    if allocation_info:
+                        yield {
+                            "event": "allocated",
+                            "data": json.dumps({
+                                "task_id": task_id,
+                                "node_id": allocation_info.get("node_id"),
+                                "node_ip": allocation_info.get("node_ip"),
+                                "node_hostname": allocation_info.get("node_hostname"),
+                                "assigned_at": allocation_info.get("assigned_at")
+                            })
+                        }
+                        allocated_sent = True
 
                 # Send update if progress changed or heartbeat interval
                 if current_progress != last_progress or consecutive_empty >= max_empty_count:

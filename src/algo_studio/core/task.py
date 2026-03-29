@@ -14,6 +14,7 @@ class ProgressStore:
 
     def __init__(self):
         self._progress: Dict[str, int] = {}
+        self._allocation: Dict[str, dict] = {}  # task_id -> allocation info
 
     def update(self, task_id: str, current: int, total: int):
         """更新进度"""
@@ -22,6 +23,19 @@ class ProgressStore:
     def get(self, task_id: str) -> int:
         """获取进度"""
         return self._progress.get(task_id, 0)
+
+    def update_allocation(self, task_id: str, allocation_info: dict):
+        """存储任务分配信息"""
+        self._allocation[task_id] = allocation_info
+
+    def get_allocation(self, task_id: str) -> dict:
+        """获取任务分配信息"""
+        return self._allocation.get(task_id)
+
+    def clear_allocation(self, task_id: str):
+        """清除任务分配信息"""
+        if task_id in self._allocation:
+            del self._allocation[task_id]
 
 
 # 全局进度存储 Actor
@@ -217,29 +231,79 @@ class TaskManager:
             progress_store = get_progress_store()
             task.progress = ray.get(progress_store.get.remote(task_id))
 
-    def dispatch_task(self, task_id: str, ray_client: "RayClient") -> bool:
-        """将任务分发到 Ray 集群执行并等待结果"""
+    def _store_allocation_info(self, task_id: str, node):
+        """存储任务分配信息到 progress store，供 SSE 获取"""
+        try:
+            progress_store = get_progress_store()
+            import datetime
+            allocation_info = {
+                "task_id": task_id,
+                "node_id": node.node_id,
+                "node_ip": node.ip,
+                "node_hostname": node.hostname,
+                "assigned_at": datetime.datetime.now().isoformat()
+            }
+            # 使用单独的 key 存储分配信息
+            progress_store.update_allocation.remote(task_id, allocation_info)
+        except Exception as e:
+            # 分配信息存储失败不影响主流程
+            print(f"[TaskManager] Failed to store allocation info: {e}")
+
+    def dispatch_task(self, task_id: str, ray_client: "RayClient", node_id: str = None, scheduling_mode: str = "auto") -> bool:
+        """将任务分发到 Ray 集群执行并等待结果
+
+        Args:
+            task_id: 任务ID
+            ray_client: Ray客户端实例
+            node_id: 指定节点ID（ip或hostname），为None则自动选择
+            scheduling_mode: 调度模式，"auto"自动选择，"manual"手动指定节点
+
+        Returns:
+            True if dispatch successful, False otherwise
+        """
         task = self._tasks.get(task_id)
         if not task:
             return False
 
-        # 获取空闲节点
-        nodes = ray_client.get_nodes()
-        idle_nodes = [n for n in nodes if n.status == "idle" and n.gpu_available > 0]
+        selected_node = None
 
-        if not idle_nodes:
-            # 没有空闲 GPU 节点，尝试 CPU 节点
-            idle_nodes = [n for n in nodes if n.status == "idle"]
+        if scheduling_mode == "manual" and node_id:
+            # 手动模式：验证指定节点
+            nodes = ray_client.get_nodes()
+            # 查找指定节点（支持IP或hostname匹配）
+            for n in nodes:
+                if n.ip == node_id or n.node_id == node_id or n.hostname == node_id:
+                    if n.status == "idle" or n.status == "busy":
+                        # 允许调度到busy节点（资源可能已释放）
+                        selected_node = n
+                    break
 
-        if not idle_nodes:
-            # No nodes available - mark task as failed with appropriate error
-            self.update_status(task_id, TaskStatus.FAILED, error="No available nodes in Ray cluster")
-            return False
+            if not selected_node:
+                # 节点不存在或不可用
+                self.update_status(task_id, TaskStatus.FAILED, error=f"指定节点 {node_id} 不可用或不存在")
+                return False
+        else:
+            # 自动模式：选择空闲节点
+            nodes = ray_client.get_nodes()
+            idle_nodes = [n for n in nodes if n.status == "idle" and n.gpu_available > 0]
 
-        # 选择第一个空闲节点
-        selected_node = idle_nodes[0]
+            if not idle_nodes:
+                # 没有空闲 GPU 节点，尝试 CPU 节点
+                idle_nodes = [n for n in nodes if n.status == "idle"]
+
+            if not idle_nodes:
+                # No nodes available - mark task as failed with appropriate error
+                self.update_status(task_id, TaskStatus.FAILED, error="No available nodes in Ray cluster")
+                return False
+
+            # 选择第一个空闲节点
+            selected_node = idle_nodes[0]
+
         # 优先使用 hostname，其次 ip，最后是 node_id
         task.assigned_node = selected_node.hostname or selected_node.ip or selected_node.node_id
+
+        # 存储分配信息到 progress store，供 SSE 获取
+        self._store_allocation_info(task_id, selected_node)
 
         # 更新状态为运行中
         self.update_status(task_id, TaskStatus.RUNNING)

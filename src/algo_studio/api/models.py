@@ -31,3 +31,18 @@ class TaskListResponse(BaseModel):
 class TaskPaginatedResponse(PaginatedResponse[TaskResponse]):
     """Paginated task response using cursor pagination."""
     pass
+
+
+class DispatchRequest(BaseModel):
+    """Request body for task dispatch endpoint."""
+    node_id: Optional[str] = Field(None, description="指定节点ID（ip或node_id），为空则自动分配")
+    scheduling_mode: str = Field("auto", description="调度模式: auto=自动选择节点, manual=手动指定节点")
+
+
+class DispatchResponse(BaseModel):
+    """Response for task dispatch endpoint."""
+    task_id: str
+    status: str
+    scheduling_mode: str
+    assigned_node: Optional[str] = None
+    message: str
