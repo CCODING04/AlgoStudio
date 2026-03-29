@@ -72,8 +72,12 @@ class Role(str, Enum):
 
 # Role to permissions mapping
 ROLE_PERMISSIONS: dict[Role, list[Permission]] = {
-    Role.VIEWER: [Permission.TASK_READ],
-    Role.DEVELOPER: [Permission.TASK_READ, Permission.TASK_CREATE, Permission.TASK_DELETE],
+    Role.VIEWER: [Permission.TASK_READ, Permission.DATASET_READ, Permission.DEPLOY_READ],
+    Role.DEVELOPER: [
+        Permission.TASK_READ, Permission.TASK_CREATE, Permission.TASK_DELETE,
+        Permission.DATASET_READ, Permission.DATASET_CREATE, Permission.DATASET_WRITE,
+        Permission.DEPLOY_READ, Permission.DEPLOY_WRITE,
+    ],
     Role.ADMIN: [
         Permission.TASK_READ,
         Permission.TASK_CREATE,
@@ -81,6 +85,13 @@ ROLE_PERMISSIONS: dict[Role, list[Permission]] = {
         Permission.ADMIN_USER,
         Permission.ADMIN_QUOTA,
         Permission.ADMIN_ALERT,
+        Permission.DATASET_READ,
+        Permission.DATASET_CREATE,
+        Permission.DATASET_WRITE,
+        Permission.DATASET_DELETE,
+        Permission.DATASET_ADMIN,
+        Permission.DEPLOY_READ,
+        Permission.DEPLOY_WRITE,
     ],
 }
 

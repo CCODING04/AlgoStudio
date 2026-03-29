@@ -33,10 +33,14 @@ logger = logging.getLogger(__name__)
 # ==============================================================================
 
 def _get_encryption_key() -> bytes:
-    """Get or generate encryption key for credentials.
+    """Get encryption key for credentials.
 
     Uses CREDENTIAL_ENCRYPTION_KEY env var if set, otherwise derives from
-    RBAC_SECRET_KEY. Falls back to a warning if neither is available.
+    RBAC_SECRET_KEY.
+
+    Raises:
+        RuntimeError: If neither CREDENTIAL_ENCRYPTION_KEY nor RBAC_SECRET_KEY is set.
+            This prevents data loss from temporary keys on restart.
     """
     key = os.environ.get("CREDENTIAL_ENCRYPTION_KEY")
     if key:
@@ -50,11 +54,13 @@ def _get_encryption_key() -> bytes:
         digest = hashlib.sha256(rbac_key.encode()).digest()
         return base64.urlsafe_b64encode(digest)
 
-    logger.warning(
-        "No CREDENTIAL_ENCRYPTION_KEY or RBAC_SECRET_KEY set. "
-        "Credentials will use a temporary key that will be lost on restart."
+    # Fail fast - credentials would be permanently lost on restart
+    raise RuntimeError(
+        "CREDENTIAL_ENCRYPTION_KEY or RBAC_SECRET_KEY must be set. "
+        "Credentials cannot be stored without a persistent encryption key. "
+        "Set CREDENTIAL_ENCRYPTION_KEY environment variable with a Fernet-compatible key, "
+        "or ensure RBAC_SECRET_KEY is set."
     )
-    return Fernet.generate_key()
 
 
 # Global Fernet instance
@@ -177,16 +183,18 @@ class CredentialStore:
     REDIS_CREDENTIAL_PREFIX = "deploy:credentials:"
     REDIS_USER_CREDENTIALS_PREFIX = "deploy:credentials:user:"
 
-    def __init__(self, redis_host: str = "localhost", redis_port: int = 6380):
+    def __init__(self, redis_host: str = "localhost", redis_port: int = 6380, redis_password: Optional[str] = None):
         """Initialize credential store.
 
         Args:
             redis_host: Redis host address
             redis_port: Redis port number
+            redis_password: Redis password for authentication (optional)
         """
         self._redis: Optional[redis.Redis] = None
         self._redis_host = redis_host
         self._redis_port = redis_port
+        self._redis_password = redis_password or os.environ.get("REDIS_PASSWORD")
 
     async def _get_redis(self) -> redis.Redis:
         """Get Redis connection (lazy initialization)."""
@@ -194,6 +202,7 @@ class CredentialStore:
             self._redis = redis.Redis(
                 host=self._redis_host,
                 port=self._redis_port,
+                password=self._redis_password,
                 decode_responses=True,
             )
         return self._redis
