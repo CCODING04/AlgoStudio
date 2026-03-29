@@ -205,28 +205,24 @@ class TestHostsRouter:
     async def test_get_hosts_status_keeps_alive_over_offline(self, client, mock_host_info):
         """Test GET /api/hosts/ keeps alive node when offline also exists."""
         nodes = [
-            MockNode("node1", "192.168.0.126", "alive"),
+            MockNode("node1", "192.168.0.126", "online"),
             MockNode("node2", "192.168.0.126", "offline"),
         ]
         mock_client = MockRayClient(nodes=nodes)
 
-        # Directly set _ray_client to bypass the asyncio.to_thread issue with patching
-        # The patch.object on get_ray_client doesn't work properly with asyncio.to_thread
-        hosts_module._ray_client = mock_client
-        with patch.object(hosts_module, "local_monitor") as mock_monitor:
+        # Patch the get_ray_client function to return our mock
+        with patch.object(hosts_module, "get_ray_client", return_value=mock_client), \
+             patch.object(hosts_module, "local_monitor") as mock_monitor:
             mock_monitor.get_host_info.return_value = mock_host_info
             mock_monitor.to_dict.return_value = {}
 
             response = await client.get("/api/hosts/")
 
-        # Reset for other tests
-        hosts_module._ray_client = None
-
         assert response.status_code == 200
         data = response.json()
         # Should keep the alive node (deduplication should prefer alive over offline)
         assert len(data["cluster_nodes"]) == 1
-        assert data["cluster_nodes"][0]["status"] == "alive"
+        assert data["cluster_nodes"][0]["status"] == "online"
 
     # ==================== Status Alias Tests ====================
 
