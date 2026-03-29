@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { useAlgorithms } from '@/hooks/use-algorithms';
+import { useHosts } from '@/hooks/use-hosts';
+import { useTaskSSEWithToast } from '@/hooks/use-task-sse-toast';
 import { createTask, dispatchTask } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Dialog,
@@ -23,7 +24,8 @@ import {
 } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { Loader2, Play, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Loader2, Play, CheckCircle2, AlertCircle, Server } from 'lucide-react';
 import { DatasetSelector } from '@/components/datasets/DatasetSelector';
 
 interface TaskWizardProps {
@@ -33,9 +35,11 @@ interface TaskWizardProps {
 }
 
 type TaskType = 'train' | 'infer' | 'verify';
+type SchedulingMode = 'auto' | 'manual';
 
 export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
   const { data: algorithms, isLoading: algorithmsLoading } = useAlgorithms();
+  const { data: hostsData, isLoading: hostsLoading } = useHosts();
 
   const [step, setStep] = useState(1);
   const [taskType, setTaskType] = useState<TaskType>('train');
@@ -45,11 +49,18 @@ export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
   const [inputs, setInputs] = useState('');
   const [config, setConfig] = useState('{"epochs": 2, "batch_size": 32}');
 
+  // Node selection state
+  const [schedulingMode, setSchedulingMode] = useState<SchedulingMode>('auto');
+  const [selectedNodeId, setSelectedNodeId] = useState<string>('');
+
   const [isCreating, setIsCreating] = useState(false);
   const [isDispatching, setIsDispatching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdTaskId, setCreatedTaskId] = useState<string | null>(null);
   const [dispatchStatus, setDispatchStatus] = useState<'pending' | 'dispatching' | 'running' | 'failed'>('pending');
+
+  // Listen for SSE allocated events when task is created
+  useTaskSSEWithToast(createdTaskId, step === 4);
 
   const selectedAlgorithm = algorithms?.find(
     (a) => a.name === algorithmName && a.version === algorithmVersion
@@ -78,7 +89,12 @@ export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
   };
 
   const handleBack = () => {
-    setStep(1);
+    setStep(step - 1);
+    setError(null);
+  };
+
+  const handleProceedToStep3 = () => {
+    setStep(3);
     setError(null);
   };
 
@@ -90,6 +106,8 @@ export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
     setDataPath('');
     setInputs('');
     setConfig('{"epochs": 2, "batch_size": 32}');
+    setSchedulingMode('auto');
+    setSelectedNodeId('');
     setError(null);
     setCreatedTaskId(null);
     setIsCreating(false);
@@ -134,14 +152,15 @@ export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
 
       const result = await createTask(request);
       setCreatedTaskId(result.task_id);
-      setStep(3);
+      setStep(4);
 
-      // Auto-dispatch the task
+      // Auto-dispatch the task with selected node (if manual mode)
       setIsDispatching(true);
       setDispatchStatus('dispatching');
 
       try {
-        await dispatchTask(result.task_id);
+        const nodeId = schedulingMode === 'manual' ? selectedNodeId : undefined;
+        await dispatchTask(result.task_id, nodeId);
         setDispatchStatus('running');
       } catch (dispatchErr) {
         console.error('Failed to dispatch task:', dispatchErr);
@@ -162,6 +181,8 @@ export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
   };
 
   const algorithmVersions = algorithms?.filter((a) => a.name === algorithmName) || [];
+  const clusterNodes = hostsData?.cluster_nodes || [];
+  const onlineNodes = clusterNodes.filter((node) => node.status === 'online');
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -170,12 +191,14 @@ export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
           <DialogTitle>
             {step === 1 && '新建任务 - 选择算法'}
             {step === 2 && '新建任务 - 配置参数'}
-            {step === 3 && '任务创建成功'}
+            {step === 3 && '新建任务 - 选择节点'}
+            {step === 4 && '任务创建成功'}
           </DialogTitle>
           <DialogDescription>
             {step === 1 && '选择要使用的算法和任务类型'}
             {step === 2 && '配置任务参数'}
-            {step === 3 && '任务已提交，请等待调度执行'}
+            {step === 3 && '选择任务分配方式'}
+            {step === 4 && '任务已提交，请等待调度执行'}
           </DialogDescription>
         </DialogHeader>
 
@@ -323,7 +346,101 @@ export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
           </div>
         )}
 
-        {step === 3 && createdTaskId && (
+        {step === 3 && (
+          <div className="space-y-6 py-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">已选算法</CardTitle>
+                <CardDescription>
+                  {algorithmName} {algorithmVersion}
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            {/* Scheduling Mode Selection */}
+            <div className="space-y-2">
+              <Label>分配模式</Label>
+              <Select
+                value={schedulingMode}
+                onValueChange={(value) => {
+                  setSchedulingMode(value as SchedulingMode);
+                  if (value === 'auto') {
+                    setSelectedNodeId('');
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="选择分配模式" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">自动分配 (推荐)</SelectItem>
+                  <SelectItem value="manual">手动选择节点</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {schedulingMode === 'auto'
+                  ? '调度器将自动选择最合适的节点'
+                  : '手动选择要执行任务的节点'}
+              </p>
+            </div>
+
+            {/* Node Selection (only in manual mode) */}
+            {schedulingMode === 'manual' && (
+              <div className="space-y-2">
+                <Label>选择节点</Label>
+                {hostsLoading ? (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    加载节点列表...
+                  </div>
+                ) : onlineNodes.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">暂无可用节点</p>
+                ) : (
+                  <div className="grid gap-2">
+                    {onlineNodes.map((node) => (
+                      <Card
+                        key={node.node_id}
+                        className={`cursor-pointer transition-colors ${
+                          selectedNodeId === node.node_id
+                            ? 'border-primary bg-primary/5'
+                            : 'hover:border-primary/50'
+                        }`}
+                        onClick={() => setSelectedNodeId(node.node_id)}
+                      >
+                        <CardContent className="p-3 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <Server className="h-4 w-4 text-muted-foreground" />
+                            <div>
+                              <p className="text-sm font-medium">{node.hostname}</p>
+                              <p className="text-xs text-muted-foreground">{node.ip}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {node.role && (
+                              <Badge
+                                variant={node.role === 'head' ? 'default' : 'secondary'}
+                                className="text-xs"
+                              >
+                                {node.role === 'head' ? 'Head' : 'Worker'}
+                              </Badge>
+                            )}
+                            {selectedNodeId === node.node_id && (
+                              <CheckCircle2 className="h-4 w-4 text-primary" />
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </div>
+        )}
+
+        {step === 4 && createdTaskId && (
           <div className="py-8">
             <div className="flex flex-col items-center gap-4">
               {dispatchStatus === 'running' ? (
@@ -379,7 +496,21 @@ export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
               <Button variant="outline" onClick={handleBack}>
                 上一步
               </Button>
-              <Button onClick={handleSubmit} disabled={isCreating}>
+              <Button onClick={handleProceedToStep3}>
+                下一步
+              </Button>
+            </>
+          )}
+
+          {step === 3 && (
+            <>
+              <Button variant="outline" onClick={handleBack}>
+                上一步
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={isCreating || (schedulingMode === 'manual' && !selectedNodeId)}
+              >
                 {isCreating ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -395,7 +526,7 @@ export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
             </>
           )}
 
-          {step === 3 && (
+          {step === 4 && (
             <Button onClick={handleClose}>完成</Button>
           )}
         </DialogFooter>
