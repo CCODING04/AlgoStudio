@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, SecretStr, field_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator
 from sse_starlette.sse import EventSourceResponse
 
 # IP address regex pattern (IPv4 only, no CIDR support)
@@ -205,6 +205,11 @@ class DeployWorkerRequestInternal(BaseModel):
     head_ip: str
     ray_port: int = 6379
     proxy_url: Optional[str] = None
+    # Algorithm sync fields
+    algorithm_name: Optional[str] = Field(default=None, description="算法名称 (如 simple_classifier)")
+    algorithm_version: Optional[str] = Field(default=None, description="算法版本 (如 v1)")
+    algorithm_sync_mode: str = Field(default="auto", description="同步模式: auto, shared_storage, rsync")
+    shared_storage_path: Optional[str] = Field(default=None, description="共享存储路径 (如 /mnt/VtrixDataset)")
 
     @field_validator("node_ip", "head_ip")
     @classmethod
@@ -237,6 +242,10 @@ class DeployWorkerRequestInternal(BaseModel):
             head_ip=self.head_ip,
             ray_port=self.ray_port,
             proxy_url=self.proxy_url,
+            algorithm_name=self.algorithm_name,
+            algorithm_version=self.algorithm_version,
+            algorithm_sync_mode=self.algorithm_sync_mode,
+            shared_storage_path=self.shared_storage_path,
         )
 
 

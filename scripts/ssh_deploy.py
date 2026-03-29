@@ -103,6 +103,12 @@ class DeployWorkerRequest(BaseModel):
     head_ip: str = Field(..., description="Ray Head 节点 IP")
     ray_port: int = Field(default=6379, description="Ray 端口")
     proxy_url: Optional[str] = Field(default=None, description="代理 URL")
+    # Algorithm sync fields
+    algorithm_name: Optional[str] = Field(default=None, description="算法名称 (如 simple_classifier)")
+    algorithm_version: Optional[str] = Field(default=None, description="算法版本 (如 v1)")
+    algorithm_sync_mode: str = Field(default="auto", description="同步模式: auto, shared_storage, rsync")
+    # Shared storage path (if using JuiceFS/NAS)
+    shared_storage_path: Optional[str] = Field(default=None, description="共享存储路径 (如 /mnt/VtrixDataset)")
 
 
 class DeployProgress(BaseModel):
@@ -118,6 +124,10 @@ class DeployProgress(BaseModel):
     node_ip: str
     started_at: datetime
     completed_at: Optional[datetime] = None
+    # Algorithm sync info
+    algorithm_name: Optional[str] = None
+    algorithm_version: Optional[str] = None
+    algorithm_synced: bool = False
 
 
 class DeployStep:
@@ -529,6 +539,7 @@ class IdempotencyChecker:
             "create_venv": self._check_venv_exists,
             "install_deps": self._check_deps_installed,
             "sync_code": self._check_code_synced,
+            "sync_algorithm": self._check_algorithm_synced,
             "start_ray": self._check_ray_running,
         }
         check_fn = checks.get(step_key)
@@ -557,6 +568,11 @@ class IdempotencyChecker:
     async def _check_code_synced(self) -> bool:
         """检查代码是否已同步"""
         result = await self.conn.run("test -d ~/Code/AlgoStudio/src", check=False)
+        return result.exit_status == 0
+
+    async def _check_algorithm_synced(self) -> bool:
+        """检查算法是否已同步 (检查 algorithms 目录)"""
+        result = await self.conn.run("test -d ~/Code/AlgoStudio/algorithms", check=False)
         return result.exit_status == 0
 
     async def _check_ray_running(self) -> bool:
@@ -673,7 +689,9 @@ class DeployProgressStore:
         self,
         task_id: str,
         node_ip: str,
-        total_steps: int = 7,
+        total_steps: int = 8,
+        algorithm_name: str = None,
+        algorithm_version: str = None,
     ) -> DeployProgress:
         """创建进度记录"""
         progress = DeployProgress(
@@ -686,6 +704,8 @@ class DeployProgressStore:
             message="初始化部署任务",
             node_ip=node_ip,
             started_at=datetime.now(),
+            algorithm_name=algorithm_name,
+            algorithm_version=algorithm_version,
         )
         async with self._lock:
             self._progress[task_id] = progress
@@ -701,6 +721,7 @@ class DeployProgressStore:
         progress: int = None,
         message: str = None,
         error: str = None,
+        algorithm_synced: bool = None,
     ):
         """更新进度"""
         async with self._lock:
@@ -724,6 +745,8 @@ class DeployProgressStore:
                 p.message = message
             if error is not None:
                 p.error = error
+            if algorithm_synced is not None:
+                p.algorithm_synced = algorithm_synced
             if status in (DeployStatus.COMPLETED, DeployStatus.FAILED, DeployStatus.CANCELLED):
                 p.completed_at = datetime.now()
 
@@ -785,25 +808,31 @@ class SSHDeployer:
         DeployStep(
             key="create_venv",
             name="创建 uv 虚拟环境",
-            weight=20,
+            weight=15,
             description="创建 uv 虚拟环境...",
         ),
         DeployStep(
             key="install_deps",
             name="安装依赖",
-            weight=25,
+            weight=15,
             description="安装项目依赖...",
         ),
         DeployStep(
             key="sync_code",
             name="同步代码",
-            weight=15,
+            weight=10,
             description="同步代码到 Worker...",
+        ),
+        DeployStep(
+            key="sync_algorithm",
+            name="同步算法",
+            weight=15,
+            description="同步算法到 Worker...",
         ),
         DeployStep(
             key="start_ray",
             name="启动 Ray Worker",
-            weight=15,
+            weight=20,
             description="启动 Ray Worker...",
         ),
         DeployStep(
@@ -856,7 +885,13 @@ class SSHDeployer:
         steps_completed = []
 
         async with self._semaphore:
-            await self.progress_store.create(task_id, request.node_ip, len(self.DEPLOY_STEPS))
+            await self.progress_store.create(
+                task_id,
+                request.node_ip,
+                len(self.DEPLOY_STEPS),
+                algorithm_name=request.algorithm_name,
+                algorithm_version=request.algorithm_version,
+            )
 
             try:
                 # Step 1: 连接
@@ -879,11 +914,16 @@ class SSHDeployer:
                 await self._step_sync_code(task_id, request)
                 steps_completed.append("sync_code")
 
-                # Step 6: 启动 Ray
+                # Step 6: 同步算法 (仅当指定了算法时)
+                if request.algorithm_name:
+                    await self._step_sync_algorithm(task_id, request)
+                    steps_completed.append("sync_algorithm")
+
+                # Step 7: 启动 Ray
                 await self._step_start_ray(task_id, request)
                 steps_completed.append("start_ray")
 
-                # Step 7: 验证
+                # Step 8: 验证
                 await self._step_verify(task_id, request)
 
                 await self.progress_store.complete(task_id)
@@ -1019,17 +1059,161 @@ class SSHDeployer:
 
         await self.progress_store.update(
             task_id,
-            progress=75,
+            progress=65,
             message="代码同步完成",
         )
 
+    async def _step_sync_algorithm(self, task_id: str, request: DeployWorkerRequest):
+        """步骤 6: 同步算法
+
+        支持三种同步模式:
+        - auto: 自动选择 (优先共享存储，否则 rsync)
+        - shared_storage: 使用 JuiceFS/NAS 共享存储 (需提前挂载)
+        - rsync: 使用 rsync 同步算法目录到节点
+
+        算法目录结构: algorithms/{algorithm_name}/{algorithm_version}/
+        """
+        await self.progress_store.update(
+            task_id,
+            step="sync_algorithm",
+            step_index=6,
+            progress=65,
+            message=f"同步算法 {request.algorithm_name}:{request.algorithm_version}...",
+        )
+
+        algorithm_path = f"algorithms/{request.algorithm_name}/{request.algorithm_version}"
+        sync_mode = request.algorithm_sync_mode or "auto"
+
+        if sync_mode == "auto":
+            # 自动选择: 优先检查共享存储是否存在
+            sync_mode = await self._detect_algorithm_sync_mode(request, algorithm_path)
+
+        if sync_mode == "shared_storage":
+            await self._sync_algorithm_via_shared_storage(task_id, request, algorithm_path)
+        else:
+            # rsync 模式
+            await self._sync_algorithm_via_rsync(task_id, request, algorithm_path)
+
+        # 验证同步结果
+        verified = await self._verify_algorithm_sync(task_id, request, algorithm_path)
+        await self.progress_store.update(
+            task_id,
+            progress=75,
+            message=f"算法同步完成 (模式: {sync_mode})",
+            algorithm_synced=verified,
+        )
+
+    async def _detect_algorithm_sync_mode(
+        self,
+        request: DeployWorkerRequest,
+        algorithm_path: str,
+    ) -> str:
+        """检测应该使用的算法同步模式
+
+        Returns:
+            "shared_storage" 或 "rsync"
+        """
+        # 检查共享存储路径
+        shared_path = request.shared_storage_path or "/mnt/VtrixDataset"
+        check_cmd = f"test -d {shared_path}/algorithms && echo 'SHARED_OK' || echo 'SHARED_NOT_FOUND'"
+        result = await self._run_command(request, check_cmd, check=False)
+
+        if "SHARED_OK" in result.stdout:
+            return "shared_storage"
+
+        # 检查本地算法目录
+        local_check = f"test -d ~/Code/AlgoStudio/{algorithm_path} && echo 'LOCAL_OK' || echo 'LOCAL_NOT_FOUND'"
+        result = await self._run_command(request, local_check, check=False)
+
+        if "LOCAL_OK" in result.stdout:
+            return "rsync"
+
+        return "rsync"  # 默认使用 rsync
+
+    async def _sync_algorithm_via_shared_storage(
+        self,
+        task_id: str,
+        request: DeployWorkerRequest,
+        algorithm_path: str,
+    ):
+        """通过共享存储同步算法 (JuiceFS/NAS)
+
+        假设共享存储已挂载到相同路径，直接验证路径存在即可。
+        """
+        shared_path = request.shared_storage_path or "/mnt/VtrixDataset"
+        remote_algorithm_path = f"{shared_path}/algorithms/{request.algorithm_name}/{request.algorithm_version}"
+
+        # 验证共享存储上的算法目录存在
+        verify_cmd = f"test -d {remote_algorithm_path} && echo 'ALGO_EXISTS' || echo 'ALGO_NOT_FOUND'"
+        result = await self._run_command(request, verify_cmd, check=False)
+
+        if "ALGO_NOT_FOUND" in result.stdout:
+            # 算法不存在于共享存储，回退到 rsync
+            await self._sync_algorithm_via_rsync(task_id, request, algorithm_path)
+            return
+
+        # 创建算法目录的符号链接 (如果需要)
+        link_cmd = (
+            f"mkdir -p ~/Code/AlgoStudio/algorithms/{request.algorithm_name} && "
+            f"ln -sfn {remote_algorithm_path} ~/Code/AlgoStudio/{algorithm_path} && "
+            f"echo 'LINK_OK'"
+        )
+        await self._run_command(request, link_cmd, check=False)
+
+    async def _sync_algorithm_via_rsync(
+        self,
+        task_id: str,
+        request: DeployWorkerRequest,
+        algorithm_path: str,
+    ):
+        """通过 rsync 同步算法目录到 Worker 节点"""
+        # 确保目标目录存在
+        mkdir_cmd = f"mkdir -p ~/Code/AlgoStudio/algorithms/{request.algorithm_name}"
+        await self._run_command(request, mkdir_cmd, check=False)
+
+        # 使用 rsync 同步算法目录
+        # 注意: rsync 的 source 路径是本地的 (Head 节点)
+        # 由于我们通过 SSH 连接执行命令，rsync 需要从 Head 推送到 Worker
+        # 这里使用 "sshpass rsync" 或者通过 SSH 执行 rsync 命令
+
+        # 构建 rsync 命令 - 从 Head 推送到 Worker
+        rsync_cmd = (
+            f"rsync -avz --delete "
+            f"~/Code/AlgoStudio/{algorithm_path}/ "
+            f"{request.username}@{request.node_ip}:~/Code/AlgoStudio/{algorithm_path}/"
+        )
+        await self._run_command(request, rsync_cmd, check=False)
+
+    async def _verify_algorithm_sync(
+        self,
+        task_id: str,
+        request: DeployWorkerRequest,
+        algorithm_path: str,
+    ) -> bool:
+        """验证算法同步是否成功
+
+        检查算法目录、__init__.py 和核心文件是否存在
+        """
+        # 检查算法目录是否存在
+        check_dir = f"test -d ~/Code/AlgoStudio/{algorithm_path} && echo 'DIR_EXISTS' || echo 'DIR_NOT_FOUND'"
+        result = await self._run_command(request, check_dir, check=False)
+
+        if "DIR_NOT_FOUND" in result.stdout:
+            return False
+
+        # 检查 __init__.py 是否存在
+        check_init = f"test -f ~/Code/AlgoStudio/{algorithm_path}/__init__.py && echo 'INIT_EXISTS' || echo 'INIT_NOT_FOUND'"
+        result = await self._run_command(request, check_init, check=False)
+
+        return "INIT_EXISTS" in result.stdout
+
     async def _step_start_ray(self, task_id: str, request: DeployWorkerRequest):
-        """步骤 6: 启动 Ray Worker"""
+        """步骤 7: 启动 Ray Worker"""
         await self.progress_store.update(
             task_id,
             step="start_ray",
-            step_index=6,
-            progress=75,
+            step_index=7,
+            progress=80,
             message="启动 Ray Worker...",
         )
 
@@ -1048,12 +1232,12 @@ class SSHDeployer:
         )
 
     async def _step_verify(self, task_id: str, request: DeployWorkerRequest):
-        """步骤 7: 验证部署"""
+        """步骤 8: 验证部署"""
         await self.progress_store.update(
             task_id,
             status=DeployStatus.VERIFYING,
             step="verify",
-            step_index=7,
+            step_index=8,
             progress=90,
             message="验证部署结果...",
         )
@@ -1131,6 +1315,10 @@ ALLOWED_COMMANDS = [
     r"^grep\s+.*",
     r"^~\/.venv-ray\/bin\/python\s+-c\s+.*",
     r"^pgrep\s+.*",
+    # Algorithm sync commands
+    r"^mkdir\s+-p\s+.*",
+    r"^ln\s+-sfn\s+.*",
+    r"^echo\s+.*",
 ]
 
 FORBIDDEN_PATTERNS = [
