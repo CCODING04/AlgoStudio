@@ -67,11 +67,12 @@ export default function HostsPage() {
           </div>
           <Button
             variant="outline"
-            size="icon"
             onClick={() => refetch()}
             disabled={isFetching}
+            data-testid="hosts-refresh-button"
           >
-            <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
+            刷新
           </Button>
         </CardContent>
       </Card>

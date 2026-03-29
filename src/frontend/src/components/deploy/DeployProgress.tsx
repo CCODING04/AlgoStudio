@@ -214,7 +214,7 @@ export function DeployProgress({ taskId, hostId, algorithmName, onClose }: Deplo
 
           {/* Actions */}
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose}>
+            <Button variant="outline" onClick={onClose} data-testid="cancel-deploy">
               {isComplete ? '关闭' : '取消'}
             </Button>
             {isComplete && status === 'completed' && (
