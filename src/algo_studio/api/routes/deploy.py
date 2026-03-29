@@ -44,6 +44,7 @@ from scripts.ssh_deploy import (
     validate_command,
     DeployError,
 )
+from algo_studio.core.deploy.credential_store import CredentialStore
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ _progress_store = DeployProgressStore()
 _deployer = SSHDeployer()
 _snapshot_store = DeploymentSnapshotStore()
 _rollback_service = RollbackService(_snapshot_store)
+_credential_store = CredentialStore()
 
 
 # ==============================================================================
@@ -130,6 +132,65 @@ class SnapshotResponse(BaseModel):
     ray_port: int
     artifacts: List[str]
     metadata: dict
+
+
+# ==============================================================================
+# Credential Management Models
+# ==============================================================================
+
+class CredentialCreateRequest(BaseModel):
+    """Request model for creating a credential.
+
+    Uses SecretStr for password to prevent accidental logging.
+    """
+    name: str
+    username: str
+    password: SecretStr
+    type: str = "password"
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        """Validate credential name is not empty."""
+        if not v or not v.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Credential name cannot be empty"
+            )
+        return v.strip()
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v: str) -> str:
+        """Validate credential type."""
+        allowed_types = ["password", "ssh_key"]
+        if v not in allowed_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid credential type: {v}. Must be one of: {allowed_types}"
+            )
+        return v
+
+
+class CredentialResponse(BaseModel):
+    """Response model for a credential (without password)."""
+    id: str
+    name: str
+    username: str
+    type: str
+    created_at: str
+
+
+class CredentialCreateResponse(BaseModel):
+    """Response model for credential creation."""
+    credential_id: str
+    message: str = "Credential stored successfully"
+
+
+class CredentialDeleteResponse(BaseModel):
+    """Response model for credential deletion."""
+    success: bool
+    message: str = "Credential deleted successfully"
 
 
 class DeployWorkerRequestInternal(BaseModel):
@@ -718,3 +779,127 @@ async def get_node_snapshots(node_ip: str):
         )
         for s in snapshots
     ]
+
+
+# ==============================================================================
+# Credential Management API Endpoints
+# ==============================================================================
+
+@router.post("/credential")
+async def create_credential(
+    request: CredentialCreateRequest,
+    user: User = Depends(require_permission(Permission.DEPLOY_WRITE)),
+):
+    """Store an encrypted deployment credential.
+
+    Stores SSH password or other credentials securely in Redis with encryption.
+    The credential is associated with the authenticated user.
+
+    Args:
+        request: Credential data including name, username, password (SecretStr), and type
+        user: Authenticated user (from RBAC middleware)
+
+    Returns:
+        CredentialCreateResponse with the generated credential_id
+
+    Raises:
+        401: Unauthorized - missing or invalid authentication
+        403: Forbidden - user lacks deploy.write permission
+        400: Bad Request - invalid credential data
+    """
+    try:
+        credential_id = await _credential_store.save_credential(
+            user_id=user.user_id,
+            name=request.name,
+            username=request.username,
+            password=request.password.get_secret_value(),
+            credential_type=request.type,
+        )
+
+        return CredentialCreateResponse(credential_id=credential_id)
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.exception("Failed to store credential")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to store credential"
+        )
+
+
+@router.get("/credentials")
+async def list_credentials(
+    user: User = Depends(require_permission(Permission.DEPLOY_READ)),
+):
+    """List all credentials for the authenticated user.
+
+    Returns a list of credential metadata (without passwords) stored
+    for the current user.
+
+    Args:
+        user: Authenticated user (from RBAC middleware)
+
+    Returns:
+        List of CredentialResponse objects
+
+    Raises:
+        401: Unauthorized - missing or invalid authentication
+        403: Forbidden - user lacks deploy.read permission
+    """
+    try:
+        credentials = await _credential_store.list_credentials(user.user_id)
+
+        return [
+            CredentialResponse(
+                id=cred["id"],
+                name=cred["name"],
+                username=cred["username"],
+                type=cred["type"],
+                created_at=cred["created_at"],
+            )
+            for cred in credentials
+        ]
+
+    except Exception as e:
+        logger.exception("Failed to list credentials")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve credentials"
+        )
+
+
+@router.delete("/credential/{credential_id}")
+async def delete_credential(
+    credential_id: str,
+    user: User = Depends(require_permission(Permission.DEPLOY_WRITE)),
+):
+    """Delete a deployment credential.
+
+    Deletes the specified credential if it exists and is owned by the
+    authenticated user.
+
+    Args:
+        credential_id: The ID of the credential to delete
+        user: Authenticated user (from RBAC middleware)
+
+    Returns:
+        CredentialDeleteResponse indicating success
+
+    Raises:
+        401: Unauthorized - missing or invalid authentication
+        403: Forbidden - user lacks deploy.write permission
+        404: Credential not found or not owned by user
+    """
+    deleted = await _credential_store.delete_credential(credential_id, user.user_id)
+
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail="Credential not found"
+        )
+
+    return CredentialDeleteResponse(success=True)
