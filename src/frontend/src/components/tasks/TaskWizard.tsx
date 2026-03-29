@@ -115,9 +115,11 @@ export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
     setDispatchStatus('pending');
   };
 
-  const handleClose = () => {
-    handleReset();
-    onOpenChange(false);
+  const handleClose = (isOpen: boolean) => {
+    if (!isOpen) {
+      handleReset();
+      onOpenChange(false);
+    }
   };
 
   const handleSubmit = async () => {
