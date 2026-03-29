@@ -34,7 +34,7 @@ export function DatasetForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isEditing = !!dataset?.id;
+  const isEditing = !!dataset?.dataset_id;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,8 +53,8 @@ export function DatasetForm({
     setLoading(true);
 
     try {
-      if (isEditing && dataset?.id) {
-        await onUpdate(dataset.id, { name, path });
+      if (isEditing && dataset?.dataset_id) {
+        await onUpdate(dataset.dataset_id, { name, path });
       } else {
         const res = await fetch('/api/proxy/datasets', {
           method: 'POST',

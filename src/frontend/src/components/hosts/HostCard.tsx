@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ResourceBar } from './ResourceBar';
-import { Play, Cpu } from 'lucide-react';
+import { Play, Cpu, Server } from 'lucide-react';
 import Link from 'next/link';
 
 // Host info structure matching FastAPI /api/hosts response
@@ -80,17 +80,30 @@ export function HostCard({ host }: HostCardProps) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-lg font-medium flex items-center gap-2">
-          {gpuInfo?.name ? (
-            <>
-              <Cpu className="h-4 w-4" />
-              {gpuInfo.name}
-            </>
-          ) : (
-            '无 GPU'
-          )}
-        </CardTitle>
-        <Badge variant={status.variant}>{status.label}</Badge>
+        <div className="flex items-center gap-2">
+          <CardTitle className="text-lg font-medium flex items-center gap-2">
+            {gpuInfo?.name ? (
+              <>
+                <Cpu className="h-4 w-4" />
+                {gpuInfo.name}
+              </>
+            ) : (
+              '无 GPU'
+            )}
+          </CardTitle>
+        </div>
+        <div className="flex gap-2">
+          {/* Role Badge */}
+          <Badge
+            variant={host.is_local ? 'default' : 'outline'}
+            className="flex items-center gap-1"
+          >
+            <Server className="h-3 w-3" />
+            {host.is_local ? 'Head' : 'Worker'}
+          </Badge>
+          {/* Status Badge */}
+          <Badge variant={status.variant}>{status.label}</Badge>
+        </div>
       </CardHeader>
 
       <CardContent className="space-y-4">

@@ -83,3 +83,19 @@ export function useDeleteDataset() {
     },
   });
 }
+
+export function useRestoreDataset() {
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/proxy/datasets/${id}/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to restore dataset');
+      }
+      return res.json();
+    },
+  });
+}

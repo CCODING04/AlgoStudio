@@ -3,9 +3,9 @@
 import { useHosts } from '@/hooks/use-hosts';
 import { HostCard } from '@/components/hosts/HostCard';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { RefreshCw, Search } from 'lucide-react';
+import { RefreshCw, Search, Server } from 'lucide-react';
 import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 
@@ -17,14 +17,23 @@ export default function HostsPage() {
   const onlineCount = hosts.filter((h) => h.status === 'online').length;
   const offlineCount = hosts.filter((h) => h.status === 'offline').length;
 
-  const filteredHosts = hosts.filter((host) => {
-    if (!searchQuery) return true;
+  // Separate head and worker nodes
+  const headNodes = hosts.filter((h) => h.is_local);
+  const workerNodes = hosts.filter((h) => !h.is_local);
+
+  // Filter hosts by search query
+  const filterHosts = (hostList: typeof hosts) => {
+    if (!searchQuery) return hostList;
     const query = searchQuery.toLowerCase();
-    return (
-      host.ip.toLowerCase().includes(query) ||
-      host.hostname.toLowerCase().includes(query)
+    return hostList.filter(
+      (host) =>
+        host.ip.toLowerCase().includes(query) ||
+        host.hostname.toLowerCase().includes(query)
     );
-  });
+  };
+
+  const filteredHeadNodes = filterHosts(headNodes);
+  const filteredWorkerNodes = filterHosts(workerNodes);
 
   return (
     <div className="space-y-6">
@@ -67,7 +76,7 @@ export default function HostsPage() {
         </CardContent>
       </Card>
 
-      {/* Host Grid */}
+      {/* Loading State */}
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {[1, 2].map((i) => (
@@ -78,19 +87,67 @@ export default function HostsPage() {
             </Card>
           ))}
         </div>
-      ) : filteredHosts.length === 0 ? (
+      ) : hosts.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center">
-            <p className="text-muted-foreground">
-              {searchQuery ? '未找到匹配的主机' : '暂无节点连接'}
-            </p>
+            <p className="text-muted-foreground">暂无节点连接</p>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredHosts.map((host) => (
-            <HostCard key={host.node_id} host={host} />
-          ))}
+        <div className="space-y-6">
+          {/* Head Nodes Section */}
+          {(filteredHeadNodes.length > 0 || filteredWorkerNodes.length > 0) === false ? (
+            <Card>
+              <CardContent className="p-12 text-center">
+                <p className="text-muted-foreground">
+                  {searchQuery ? '未找到匹配的主机' : '暂无节点连接'}
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {/* Head Nodes */}
+              {filteredHeadNodes.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Server className="h-5 w-5" />
+                    <h2 className="text-xl font-semibold">Head 节点</h2>
+                    <Badge variant="outline">{filteredHeadNodes.length}</Badge>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {filteredHeadNodes.map((host) => (
+                      <HostCard key={host.node_id} host={host} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Worker Nodes */}
+              {filteredWorkerNodes.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Server className="h-5 w-5" />
+                    <h2 className="text-xl font-semibold">Worker 节点</h2>
+                    <Badge variant="outline">{filteredWorkerNodes.length}</Badge>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {filteredWorkerNodes.map((host) => (
+                      <HostCard key={host.node_id} host={host} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Empty search result */}
+              {searchQuery && filteredHeadNodes.length === 0 && filteredWorkerNodes.length === 0 && (
+                <Card>
+                  <CardContent className="p-12 text-center">
+                    <p className="text-muted-foreground">未找到匹配的主机</p>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

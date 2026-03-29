@@ -17,6 +17,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DatasetForm } from './DatasetForm';
 import { Pencil, Trash2, Plus, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
 
 const PAGE_SIZE = 10;
 
@@ -101,9 +102,9 @@ export function DatasetTable({
   };
 
   const handleDelete = async (dataset: DatasetResponse) => {
-    if (!dataset.id) return;
+    if (!dataset.dataset_id) return;
     if (window.confirm(`确定要删除数据集 "${dataset.name}" 吗？`)) {
-      await onDelete(dataset.id);
+      await onDelete(dataset.dataset_id);
     }
   };
 
@@ -172,8 +173,12 @@ export function DatasetTable({
                 </TableRow>
               ) : (
                 paginatedDatasets.map((dataset) => (
-                  <TableRow key={dataset.id}>
-                    <TableCell className="font-medium">{dataset.name}</TableCell>
+                  <TableRow key={dataset.dataset_id}>
+                    <TableCell className="font-medium">
+                      <Link href={`/datasets/${dataset.dataset_id}`} className="hover:underline">
+                        {dataset.name}
+                      </Link>
+                    </TableCell>
                     <TableCell className="max-w-[200px] truncate text-muted-foreground">
                       {dataset.path}
                     </TableCell>
