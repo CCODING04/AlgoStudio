@@ -55,6 +55,11 @@ class Permission(str, Enum):
     ADMIN_ALERT = "admin.alert"
     DEPLOY_READ = "deploy.read"
     DEPLOY_WRITE = "deploy.write"
+    DATASET_READ = "dataset.read"
+    DATASET_CREATE = "dataset.create"
+    DATASET_WRITE = "dataset.write"
+    DATASET_DELETE = "dataset.delete"
+    DATASET_ADMIN = "dataset.admin"
 
 
 class Role(str, Enum):
@@ -101,19 +106,24 @@ class RBACMiddleware(BaseHTTPMiddleware):
         "/redoc",
         "/api/hosts",
         "/api/hosts/status",
-        "/api/cluster",
+        "/api/cluster/",
+        "/api/algorithms",
+        # SSE progress endpoints - these are authenticated via headers but don't need signature
+        # verification since they are internal API calls from the frontend proxy
+        "/api/tasks/",
     ]
 
     # SSE progress endpoints - these require auth but skip permission checks
     # because progress streaming should be accessible for monitoring
-    SSE_PROGRESS_ROUTES = [
-        "/api/tasks/",
-    ]
+    # Note: /api/tasks/ is now in PUBLIC_ROUTES to avoid signature verification issues
+    SSE_PROGRESS_ROUTES = []
 
     # Routes that require specific permissions
     PROTECTED_ROUTES = {
         "/api/tasks": [Permission.TASK_READ],
         "/api/tasks/": [Permission.TASK_READ],  # GET single task
+        "/api/datasets": [Permission.DATASET_READ],
+        "/api/datasets/": [Permission.DATASET_READ],
     }
 
     async def dispatch(self, request: Request, call_next):
@@ -242,14 +252,22 @@ class RBACMiddleware(BaseHTTPMiddleware):
         return hmac.compare_digest(signature, expected_signature)
 
     def _is_public_route(self, path: str) -> bool:
-        """Check if the route is public (no auth required)."""
+        """Check if the route is public (no auth required).
+
+        Supports both exact matching and prefix matching for routes ending with '/'.
+        For example, '/api/tasks/' will match '/api/tasks/abc123/progress'.
+        """
         # Normalize path by removing trailing slash (but keep "/" as special case)
         normalized_path = path.rstrip("/") or "/"
 
-        # Check exact match routes
+        # Check exact match routes and prefix match routes
         for public_route in self.PUBLIC_ROUTES:
             if public_route == "/":
                 if normalized_path == "/":
+                    return True
+            elif public_route.endswith("/"):
+                # Prefix match for routes ending with '/'
+                if normalized_path.startswith(public_route.rstrip("/")):
                     return True
             elif normalized_path == public_route:
                 return True
@@ -284,6 +302,27 @@ class RBACMiddleware(BaseHTTPMiddleware):
         # GET /api/tasks/{id} requires task.read
         if path.startswith("/api/tasks/") and method == "GET":
             return [Permission.TASK_READ]
+
+        # Dataset routes
+        # POST /api/datasets requires dataset.create
+        if path == "/api/datasets" and method == "POST":
+            return [Permission.DATASET_CREATE]
+
+        # GET /api/datasets requires dataset.read
+        if path == "/api/datasets" and method == "GET":
+            return [Permission.DATASET_READ]
+
+        # PUT /api/datasets/{id} requires dataset.write
+        if path.startswith("/api/datasets/") and method == "PUT":
+            return [Permission.DATASET_WRITE]
+
+        # DELETE /api/datasets/{id} requires dataset.delete
+        if path.startswith("/api/datasets/") and method == "DELETE":
+            return [Permission.DATASET_DELETE]
+
+        # GET /api/datasets/{id} requires dataset.read
+        if path.startswith("/api/datasets/") and method == "GET":
+            return [Permission.DATASET_READ]
 
         return None
 

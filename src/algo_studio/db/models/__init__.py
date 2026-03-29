@@ -9,6 +9,7 @@ from algo_studio.db.models.organization import Organization
 from algo_studio.db.models.team import Team
 from algo_studio.db.models.team_membership import TeamMembership
 from algo_studio.db.models.audit import AuditLog, AuditAction
+from algo_studio.db.models.dataset import Dataset, DatasetAccess
 
 __all__ = [
     "Base",
@@ -23,4 +24,6 @@ __all__ = [
     "TeamMembership",
     "AuditLog",
     "AuditAction",
+    "Dataset",
+    "DatasetAccess",
 ]

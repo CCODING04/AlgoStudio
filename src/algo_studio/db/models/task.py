@@ -2,12 +2,15 @@
 """Task history model for persistent task storage."""
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from algo_studio.db.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from algo_studio.db.models.dataset import Dataset
 
 
 class Task(Base, TimestampMixin):
@@ -37,6 +40,14 @@ class Task(Base, TimestampMixin):
     user_id: Mapped[Optional[str]] = mapped_column(
         String(64), ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True
     )
+
+    # Dataset association
+    dataset_id: Mapped[Optional[str]] = mapped_column(
+        String(64), ForeignKey("datasets.dataset_id", ondelete="SET NULL"), nullable=True
+    )
+
+    # Relationship to dataset
+    dataset: Mapped[Optional["Dataset"]] = relationship("Dataset", back_populates="tasks")
 
     # Timestamps
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

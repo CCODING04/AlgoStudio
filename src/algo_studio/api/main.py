@@ -1,6 +1,6 @@
 # src/algo_studio/api/main.py
 from fastapi import FastAPI
-from algo_studio.api.routes import tasks, hosts, cluster, deploy, audit
+from algo_studio.api.routes import tasks, hosts, cluster, deploy, audit, algorithms, datasets
 from algo_studio.api.middleware.rbac import RBACMiddleware
 from algo_studio.api.middleware.audit import AuditMiddleware
 
@@ -22,6 +22,8 @@ app.include_router(hosts.router)
 app.include_router(cluster.router)
 app.include_router(deploy.router)
 app.include_router(audit.router)
+app.include_router(algorithms.router)
+app.include_router(datasets.router)
 
 @app.get("/health")
 async def health():

@@ -17,7 +17,7 @@ from alembic import context
 
 # Import models to register them with metadata
 from algo_studio.db.models.base import Base
-from algo_studio.db.models import user, task, quota  # noqa: F401
+from algo_studio.db.models import user, task, quota, dataset  # noqa: F401
 
 # Alembic Config object
 config = context.config
