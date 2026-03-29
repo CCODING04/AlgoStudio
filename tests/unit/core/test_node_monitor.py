@@ -6,6 +6,32 @@ from unittest.mock import patch, MagicMock
 import ray
 
 
+class TestNodeMonitorActorExceptionHandling:
+    """Tests for NodeMonitorActor exception handling paths."""
+
+    @pytest.fixture
+    def ray_init(self):
+        """Initialize Ray for testing."""
+        if not ray.is_initialized():
+            ray.init(num_cpus=2, ignore_reinit_error=True)
+        yield
+
+    def test_get_host_info_returns_valid_info(self, ray_init):
+        """Test get_host_info returns valid info (GPU may or may not be available)."""
+        from algo_studio.monitor.node_monitor import NodeMonitorActor
+
+        actor = NodeMonitorActor.remote()
+        info = ray.get(actor.get_host_info.remote())
+
+        # Should always return a valid dict with required fields
+        assert isinstance(info, dict)
+        assert 'hostname' in info
+        assert 'gpu_count' in info
+        # GPU may or may not be available, but values should be valid types
+        assert isinstance(info['gpu_count'], int)
+        assert info['gpu_count'] >= 0
+
+
 class TestNodeMonitorActor:
     """Tests for NodeMonitorActor."""
 

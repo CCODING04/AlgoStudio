@@ -574,3 +574,476 @@ class TestLoadAlgorithm:
             with patch('algo_studio.core.task.ALGORITHM_BASE_PATH', tmpdir):
                 with pytest.raises(ValueError, match="No algorithm implementation found"):
                     _load_algorithm("test_algo", "v1")
+
+
+class TestGetProgressStore:
+    """Tests for get_progress_store function."""
+
+    def test_get_progress_store_creates_actor(self):
+        """Test get_progress_store creates a new ProgressStore actor."""
+        from algo_studio.core.task import get_progress_store, _progress_store_actor
+
+        # Reset global state
+        import algo_studio.core.task as task_module
+        task_module._progress_store_actor = None
+
+        try:
+            # When actor doesn't exist, should create new one
+            store = get_progress_store()
+            # Should return a Ray actor handle
+            assert store is not None
+        finally:
+            # Cleanup
+            task_module._progress_store_actor = None
+
+
+class TestProgressStoreActor:
+    """Tests for ProgressStore Ray Actor."""
+
+    def test_progress_store_remote_class(self):
+        """Test ProgressStore is a Ray remote class."""
+        from algo_studio.core.task import ProgressStore
+        assert hasattr(ProgressStore, '_remote')
+
+    def test_progress_store_update_allocation(self):
+        """Test ProgressStore.update_allocation stores allocation info."""
+        from algo_studio.core.task import ProgressStore
+        import ray
+
+        if not ray.is_initialized():
+            ray.init(num_cpus=2, ignore_reinit_error=True)
+
+        store = ProgressStore.remote()
+        allocation_info = {
+            "node_id": "node-1",
+            "node_ip": "192.168.0.1",
+            "assigned_at": "2024-01-01"
+        }
+        ray.get(store.update_allocation.remote("task-001", allocation_info))
+
+        result = ray.get(store.get_allocation.remote("task-001"))
+        assert result == allocation_info
+
+    def test_progress_store_clear_allocation(self):
+        """Test ProgressStore.clear_allocation removes allocation info."""
+        from algo_studio.core.task import ProgressStore
+        import ray
+
+        if not ray.is_initialized():
+            ray.init(num_cpus=2, ignore_reinit_error=True)
+
+        store = ProgressStore.remote()
+        allocation_info = {"node_id": "node-1"}
+        ray.get(store.update_allocation.remote("task-002", allocation_info))
+        ray.get(store.clear_allocation.remote("task-002"))
+
+        result = ray.get(store.get_allocation.remote("task-002"))
+        assert result is None
+
+    def test_progress_store_update_and_get_progress(self):
+        """Test ProgressStore update and get progress."""
+        from algo_studio.core.task import ProgressStore
+        import ray
+
+        if not ray.is_initialized():
+            ray.init(num_cpus=2, ignore_reinit_error=True)
+
+        store = ProgressStore.remote()
+        ray.get(store.update.remote("task-003", 50, 100))
+
+        progress = ray.get(store.get.remote("task-003"))
+        assert progress == 50
+
+
+class TestProgressReporterActor:
+    """Tests for ProgressReporter Ray Actor."""
+
+    def test_progress_reporter_remote_class(self):
+        """Test ProgressReporter is a Ray remote class."""
+        from algo_studio.core.task import ProgressReporter
+        assert hasattr(ProgressReporter, '_remote')
+
+
+class TestTaskManagerDispatchManualMode:
+    """Tests for TaskManager.dispatch_task with manual node selection."""
+
+    @pytest.fixture
+    def task_manager(self):
+        """Create a fresh TaskManager instance."""
+        return TaskManager()
+
+    def test_dispatch_task_manual_mode_node_not_found(self, task_manager):
+        """Test dispatch with manual mode when specified node doesn't exist."""
+        task = task_manager.create_task(TaskType.TRAIN, "a", "v1", {})
+
+        mock_node = MagicMock()
+        mock_node.status = "idle"
+        mock_node.gpu_available = 1
+        mock_node.hostname = "gpu-node"
+        mock_node.ip = "192.168.0.115"
+
+        mock_ray_client = MagicMock()
+        mock_ray_client.get_nodes.return_value = [mock_node]
+
+        # Request a different node that doesn't exist
+        result = task_manager.dispatch_task(task.task_id, mock_ray_client, node_id="non-existent-node", scheduling_mode="manual")
+
+        assert result is False
+        updated_task = task_manager.get_task(task.task_id)
+        assert updated_task.status == TaskStatus.FAILED
+        assert "不可用或不存在" in updated_task.error
+
+    def test_dispatch_task_manual_mode_node_specified_by_ip(self, task_manager):
+        """Test dispatch with manual mode when node is specified by IP."""
+        task = task_manager.create_task(TaskType.TRAIN, "a", "v1", {})
+
+        mock_node = MagicMock()
+        mock_node.status = "idle"
+        mock_node.gpu_available = 1
+        mock_node.hostname = "gpu-node"
+        mock_node.ip = "192.168.0.115"
+        mock_node.node_id = "node-id-123"
+
+        mock_ray_client = MagicMock()
+        mock_ray_client.get_nodes.return_value = [mock_node]
+
+        mock_result = {"status": "completed", "success": True, "model_path": "/model.pth", "metrics": {}}
+        with patch('ray.get', return_value=mock_result):
+            result = task_manager.dispatch_task(task.task_id, mock_ray_client, node_id="192.168.0.115", scheduling_mode="manual")
+
+        assert result is True
+        updated_task = task_manager.get_task(task.task_id)
+        assert updated_task.status == TaskStatus.COMPLETED
+        assert updated_task.assigned_node == "gpu-node"
+
+    def test_dispatch_task_manual_mode_node_specified_by_hostname(self, task_manager):
+        """Test dispatch with manual mode when node is specified by hostname."""
+        task = task_manager.create_task(TaskType.TRAIN, "a", "v1", {})
+
+        mock_node = MagicMock()
+        mock_node.status = "idle"
+        mock_node.gpu_available = 1
+        mock_node.hostname = "worker-01"
+        mock_node.ip = "192.168.0.115"
+        mock_node.node_id = "node-id-123"
+
+        mock_ray_client = MagicMock()
+        mock_ray_client.get_nodes.return_value = [mock_node]
+
+        mock_result = {"status": "completed", "success": True, "model_path": "/model.pth", "metrics": {}}
+        with patch('ray.get', return_value=mock_result):
+            result = task_manager.dispatch_task(task.task_id, mock_ray_client, node_id="worker-01", scheduling_mode="manual")
+
+        assert result is True
+
+    def test_dispatch_task_manual_mode_busy_node_allowed(self, task_manager):
+        """Test dispatch with manual mode allows busy node (resources may have freed)."""
+        task = task_manager.create_task(TaskType.INFER, "a", "v1", {})
+
+        mock_node = MagicMock()
+        mock_node.status = "busy"
+        mock_node.gpu_available = 0
+        mock_node.hostname = "cpu-node"
+        mock_node.ip = "192.168.0.200"
+        mock_node.node_id = "busy-node-id"
+
+        mock_ray_client = MagicMock()
+        mock_ray_client.get_nodes.return_value = [mock_node]
+
+        mock_result = {"status": "completed", "success": True, "outputs": [1, 2]}
+        with patch('ray.get', return_value=mock_result):
+            result = task_manager.dispatch_task(task.task_id, mock_ray_client, node_id="192.168.0.200", scheduling_mode="manual")
+
+        assert result is True
+
+
+class TestTaskManagerSyncProgress:
+    """Tests for TaskManager.sync_progress method."""
+
+    @pytest.fixture
+    def task_manager(self):
+        """Create a fresh TaskManager instance."""
+        return TaskManager()
+
+    def test_sync_progress_non_existent_task(self, task_manager):
+        """Test sync_progress handles non-existent task gracefully."""
+        # Should not raise
+        task_manager.sync_progress("non-existent-task")
+
+
+class TestTaskManagerStoreAllocationInfo:
+    """Tests for TaskManager._store_allocation_info method."""
+
+    @pytest.fixture
+    def task_manager(self):
+        """Create a fresh TaskManager instance."""
+        return TaskManager()
+
+    def test_store_allocation_info_handles_exception(self, task_manager):
+        """Test _store_allocation_info handles exceptions gracefully."""
+        task = task_manager.create_task(TaskType.TRAIN, "a", "v1", {})
+
+        mock_node = MagicMock()
+        mock_node.node_id = "node-123"
+        mock_node.ip = "192.168.0.1"
+        mock_node.hostname = "test-node"
+
+        # Make progress store raise exception
+        mock_store = MagicMock()
+        mock_store.update_allocation.remote.side_effect = Exception("Redis error")
+
+        with patch('algo_studio.core.task.get_progress_store', return_value=mock_store):
+            # Should not raise
+            task_manager._store_allocation_info(task.task_id, mock_node)
+
+
+class TestRayRemoteFunctions:
+    """Tests for Ray remote functions: run_training, run_inference, run_verification."""
+
+    def test_run_training_function_is_remote(self):
+        """Test run_training is a Ray remote function."""
+        from algo_studio.core.task import run_training
+        assert hasattr(run_training, '_remote')
+
+    def test_run_inference_function_is_remote(self):
+        """Test run_inference is a Ray remote function."""
+        from algo_studio.core.task import run_inference
+        assert hasattr(run_inference, '_remote')
+
+    def test_run_verification_function_is_remote(self):
+        """Test run_verification is a Ray remote function."""
+        from algo_studio.core.task import run_verification
+        assert hasattr(run_verification, '_remote')
+
+
+class TestTaskManagerDispatchUnknownType:
+    """Tests for TaskManager.dispatch_task with unknown task type."""
+
+    @pytest.fixture
+    def task_manager(self):
+        """Create a fresh TaskManager instance."""
+        return TaskManager()
+
+    def test_dispatch_task_unknown_task_type(self, task_manager):
+        """Test dispatch fails gracefully with unknown task type."""
+        # Create a task with an unknown task type by bypassing the factory
+        from algo_studio.core.task import Task, TaskStatus
+        task = Task(
+            task_id="test-unknown-type",
+            task_type="unknown_type",  # Invalid type
+            algorithm_name="a",
+            algorithm_version="v1",
+        )
+        task_manager._tasks[task.task_id] = task
+
+        mock_node = MagicMock()
+        mock_node.status = "idle"
+        mock_node.gpu_available = 1
+        mock_node.hostname = "gpu-node"
+        mock_node.ip = "192.168.0.115"
+
+        mock_ray_client = MagicMock()
+        mock_ray_client.get_nodes.return_value = [mock_node]
+
+        result = task_manager.dispatch_task(task.task_id, mock_ray_client)
+
+        assert result is False
+        updated_task = task_manager.get_task(task.task_id)
+        assert updated_task.status == TaskStatus.FAILED
+        assert "Unknown task type" in updated_task.error
+
+
+class TestTaskManagerDispatchTaskAssignment:
+    """Tests for task assignment node priority (hostname vs ip vs node_id)."""
+
+    @pytest.fixture
+    def task_manager(self):
+        """Create a fresh TaskManager instance."""
+        return TaskManager()
+
+    def test_assigned_node_prefers_hostname(self, task_manager):
+        """Test that assigned_node prefers hostname over ip and node_id."""
+        task = task_manager.create_task(TaskType.TRAIN, "a", "v1", {})
+
+        mock_node = MagicMock()
+        mock_node.status = "idle"
+        mock_node.gpu_available = 1
+        mock_node.hostname = "preferred-hostname"
+        mock_node.ip = "192.168.0.115"
+        mock_node.node_id = "node-id-123"
+
+        mock_ray_client = MagicMock()
+        mock_ray_client.get_nodes.return_value = [mock_node]
+
+        mock_result = {"status": "completed", "success": True, "model_path": "/model.pth", "metrics": {}}
+        with patch('ray.get', return_value=mock_result):
+            task_manager.dispatch_task(task.task_id, mock_ray_client)
+
+        updated_task = task_manager.get_task(task.task_id)
+        assert updated_task.assigned_node == "preferred-hostname"
+
+    def test_assigned_node_fallback_to_ip(self, task_manager):
+        """Test that assigned_node falls back to ip when hostname is None."""
+        task = task_manager.create_task(TaskType.INFER, "a", "v1", {})
+
+        mock_node = MagicMock()
+        mock_node.status = "idle"
+        mock_node.gpu_available = 0
+        mock_node.hostname = None  # No hostname
+        mock_node.ip = "192.168.0.200"
+        mock_node.node_id = "node-id-456"
+
+        mock_ray_client = MagicMock()
+        mock_ray_client.get_nodes.return_value = [mock_node]
+
+        mock_result = {"status": "completed", "success": True, "outputs": [1, 2]}
+        with patch('ray.get', return_value=mock_result):
+            task_manager.dispatch_task(task.task_id, mock_ray_client)
+
+        updated_task = task_manager.get_task(task.task_id)
+        assert updated_task.assigned_node == "192.168.0.200"
+
+
+class TestRayProgressCallbackProgressReporter:
+    """Tests for RayProgressCallback with actual ProgressReporter actor."""
+
+    def test_ray_progress_callback_update_with_mock_reporter(self):
+        """Test RayProgressCallback.update actually calls remote."""
+        from algo_studio.core.task import RayProgressCallback
+
+        mock_reporter = MagicMock()
+        callback = RayProgressCallback("task-test", mock_reporter)
+
+        callback.update(25, 100, "Epoch 1 complete")
+
+        # Verify the remote method was called
+        mock_reporter.update_progress.remote.assert_called_once_with("task-test", 25, 100, "Epoch 1 complete")
+
+
+class TestProgressReporterGetProgress:
+    """Tests for ProgressReporter.get_progress method."""
+
+    def test_progress_reporter_get_progress_signature(self):
+        """Test ProgressReporter.get_progress has correct signature."""
+        from algo_studio.core.task import ProgressReporter
+        import inspect
+
+        sig = inspect.signature(ProgressReporter.get_progress)
+        params = list(sig.parameters.keys())
+        assert 'task_id' in params
+
+
+class TestProgressStoreActorMethods:
+    """Tests for ProgressStore Ray Actor methods."""
+
+    def test_progress_store_init(self):
+        """Test ProgressStore.__init__ initializes correctly."""
+        from algo_studio.core.task import ProgressStore
+        import ray
+
+        if not ray.is_initialized():
+            ray.init(num_cpus=2, ignore_reinit_error=True)
+
+        store = ProgressStore.remote()
+        # Verify initial state
+        progress = ray.get(store.get.remote("nonexistent-task"))
+        assert progress == 0
+
+    def test_progress_store_update_zero_total(self):
+        """Test ProgressStore.update with zero total returns 0."""
+        from algo_studio.core.task import ProgressStore
+        import ray
+
+        if not ray.is_initialized():
+            ray.init(num_cpus=2, ignore_reinit_error=True)
+
+        store = ProgressStore.remote()
+        ray.get(store.update.remote("task-zero", 50, 0))
+
+        progress = ray.get(store.get.remote("task-zero"))
+        assert progress == 0
+
+    def test_progress_store_get_allocation_nonexistent(self):
+        """Test ProgressStore.get_allocation for nonexistent task."""
+        from algo_studio.core.task import ProgressStore
+        import ray
+
+        if not ray.is_initialized():
+            ray.init(num_cpus=2, ignore_reinit_error=True)
+
+        store = ProgressStore.remote()
+        result = ray.get(store.get_allocation.remote("nonexistent-task"))
+        assert result is None
+
+    def test_progress_store_clear_allocation_existing(self):
+        """Test ProgressStore.clear_allocation removes allocation."""
+        from algo_studio.core.task import ProgressStore
+        import ray
+
+        if not ray.is_initialized():
+            ray.init(num_cpus=2, ignore_reinit_error=True)
+
+        store = ProgressStore.remote()
+        ray.get(store.update_allocation.remote("task-to-clear", {"node": "n1"}))
+        ray.get(store.clear_allocation.remote("task-to-clear"))
+        result = ray.get(store.get_allocation.remote("task-to-clear"))
+        assert result is None
+
+    def test_progress_store_multiple_tasks_independent(self):
+        """Test ProgressStore handles multiple tasks independently."""
+        from algo_studio.core.task import ProgressStore
+        import ray
+
+        if not ray.is_initialized():
+            ray.init(num_cpus=2, ignore_reinit_error=True)
+
+        store = ProgressStore.remote()
+        ray.get(store.update.remote("task-a", 25, 100))
+        ray.get(store.update.remote("task-b", 75, 100))
+        ray.get(store.update.remote("task-c", 50, 100))
+
+        assert ray.get(store.get.remote("task-a")) == 25
+        assert ray.get(store.get.remote("task-b")) == 75
+        assert ray.get(store.get.remote("task-c")) == 50
+
+
+class TestProgressReporterActorMethods:
+    """Tests for ProgressReporter Ray Actor methods."""
+
+    def test_progress_reporter_update_progress(self):
+        """Test ProgressReporter.update_progress method exists and is callable."""
+        from algo_studio.core.task import ProgressReporter
+        import ray
+
+        if not ray.is_initialized():
+            ray.init(num_cpus=2, ignore_reinit_error=True)
+
+        reporter = ProgressReporter.remote()
+        # Just verify the method can be called (it will interact with ProgressStore)
+        # Should not raise
+        ray.get(reporter.update_progress.remote("test-task", 10, 100, "test"))
+
+
+class TestGetProgressStore:
+    """Tests for get_progress_store function."""
+
+    def test_get_progress_store_is_remote_class(self):
+        """Test get_progress_store returns a Ray actor handle."""
+        from algo_studio.core.task import get_progress_store, ProgressStore
+        import ray
+
+        if not ray.is_initialized():
+            ray.init(num_cpus=2, ignore_reinit_error=True)
+
+        # Reset global state
+        import algo_studio.core.task as task_module
+        original = task_module._progress_store_actor
+        task_module._progress_store_actor = None
+
+        try:
+            store = get_progress_store()
+            # Should be a Ray actor
+            assert hasattr(store, 'update')
+            assert hasattr(store, 'get')
+        finally:
+            task_module._progress_store_actor = original
