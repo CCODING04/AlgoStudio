@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Set
 import socket
 import time
 import threading
@@ -11,6 +11,38 @@ try:
     from ray.exceptions import ActorNotFoundError
 except ImportError:
     ActorNotFoundError = ValueError  # Fallback for older Ray versions
+
+
+def determine_node_role(node_ip: str, ray_head_ip: str) -> str:
+    """Determine if a node is a 'head' or 'worker' node.
+
+    The node is considered a 'head' node if its IP matches the Ray head IP.
+    Otherwise, it is considered a 'worker' node.
+
+    Args:
+        node_ip: IP address of the node to check
+        ray_head_ip: IP address of the Ray head node
+
+    Returns:
+        'head' if node_ip == ray_head_ip, 'worker' otherwise
+    """
+    if not node_ip or not ray_head_ip:
+        return "worker"
+    return "head" if node_ip == ray_head_ip else "worker"
+
+
+def get_default_node_labels(node_role: str) -> Set[str]:
+    """Get default labels based on node role.
+
+    Args:
+        node_role: 'head' or 'worker'
+
+    Returns:
+        Set of default labels
+    """
+    if node_role == "head":
+        return {"head", "management", "gpu"}
+    return {"worker", "gpu"}
 
 @dataclass
 class NodeStatus:
@@ -36,6 +68,9 @@ class NodeStatus:
     gpu_memory_total_gb: Optional[float] = None
     gpu_name: Optional[str] = None
     hostname: Optional[str] = None
+    # Node role and labels (head/worker)
+    role: str = "worker"  # "head" | "worker"
+    labels: Set[str] = field(default_factory=set)  # Custom labels like {"training", "gpu"}
 
     @property
     def cpu_available(self) -> int:
@@ -48,6 +83,18 @@ class NodeStatus:
     @property
     def memory_available_gb(self) -> float:
         return self.memory_total_gb - self.memory_used_gb
+
+    def is_head(self) -> bool:
+        """Check if this node is a head node."""
+        return self.role == "head"
+
+    def is_worker(self) -> bool:
+        """Check if this node is a worker node."""
+        return self.role == "worker"
+
+    def has_label(self, label: str) -> bool:
+        """Check if node has a specific label."""
+        return label in self.labels
 
 class RayClient:
     def __init__(self, head_address: Optional[str] = None, cache_ttl: float = 5.0):
@@ -63,6 +110,17 @@ class RayClient:
         self._cache_ttl = cache_ttl
         self._nodes_cache = None  # (timestamp, nodes_list)
         self._cache_lock = threading.Lock()
+
+    def _get_head_ip(self) -> str:
+        """Extract head IP from head_address.
+
+        Returns:
+            IP address of the Ray head node, or empty string if not available
+        """
+        if self.head_address:
+            host_port = self.head_address.split(':')
+            return host_port[0]
+        return ""
 
     def _check_ray_available(self) -> bool:
         """Check if Ray head node is reachable via socket connection.
@@ -239,6 +297,11 @@ class RayClient:
             is_alive = node.get("Alive", False)
 
             if not is_alive:
+                # Determine role for offline node
+                head_ip = self._get_head_ip()
+                role = determine_node_role(node_ip, head_ip)
+                labels = get_default_node_labels(role)
+
                 # Offline node - return null/0 for unavailable fields
                 status = NodeStatus(
                     node_id=node["NodeID"],
@@ -253,7 +316,9 @@ class RayClient:
                     disk_used_gb=0.0,
                     disk_total_gb=0.0,
                     swap_used_gb=0.0,
-                    swap_total_gb=0.0
+                    swap_total_gb=0.0,
+                    role=role,
+                    labels=labels
                 )
                 nodes.append(status)
                 continue
@@ -325,6 +390,11 @@ class RayClient:
                     gpu_name = host_info.get("gpu_name")
                     hostname = host_info.get("hostname")
 
+            # Determine role and labels for this node
+            head_ip = self._get_head_ip()
+            role = determine_node_role(node_ip, head_ip)
+            labels = get_default_node_labels(role)
+
             status = NodeStatus(
                 node_id=node["NodeID"],
                 ip=node_ip,
@@ -346,7 +416,9 @@ class RayClient:
                 gpu_memory_used_gb=gpu_memory_used_gb,
                 gpu_memory_total_gb=gpu_memory_total_gb,
                 gpu_name=gpu_name,
-                hostname=hostname
+                hostname=hostname,
+                role=role,
+                labels=labels
             )
             nodes.append(status)
 

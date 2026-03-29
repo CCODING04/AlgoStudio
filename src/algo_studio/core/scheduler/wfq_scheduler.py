@@ -52,6 +52,10 @@ class FairSchedulingDecision:
     # Override info
     override_reason: Optional[str] = None
 
+    # Role-aware scheduling
+    target_role: Optional[str] = None  # "head" | "worker" | None (any)
+    target_labels: List[str] = field(default_factory=list)  # Required labels
+
     # Fairness metrics
     fair_share_applied: bool = False
     usage_at_selection: Dict[str, float] = field(default_factory=dict)
@@ -63,6 +67,41 @@ class FairSchedulingDecision:
     def decision_id_short(self) -> str:
         """Get shortened decision ID."""
         return self.decision_id[:8]
+
+    def requires_head_node(self) -> bool:
+        """Check if this decision requires a head node."""
+        return self.target_role == "head"
+
+    def requires_worker_node(self) -> bool:
+        """Check if this decision requires a worker node."""
+        return self.target_role == "worker"
+
+    def has_label_requirements(self) -> bool:
+        """Check if this decision has label requirements."""
+        return len(self.target_labels) > 0
+
+    def matches_node(self, node_role: str, node_labels: List[str]) -> bool:
+        """Check if a node matches this scheduling decision's requirements.
+
+        Args:
+            node_role: Role of the node ("head" or "worker")
+            node_labels: Labels of the node
+
+        Returns:
+            True if node matches requirements, False otherwise
+        """
+        # Check role requirement
+        if self.target_role is not None and self.target_role != node_role:
+            return False
+
+        # Check label requirements (all required labels must be present)
+        if self.target_labels:
+            node_labels_set = set(node_labels)
+            for label in self.target_labels:
+                if label not in node_labels_set:
+                    return False
+
+        return True
 
 
 class PriorityOverride:
@@ -655,6 +694,8 @@ class WFQScheduler:
         tenant_weight: float = 1.0,
         virtual_finish_time: Optional[float] = None,
         override_reason: Optional[str] = None,
+        target_role: Optional[str] = None,
+        target_labels: Optional[List[str]] = None,
     ) -> FairSchedulingDecision:
         """Create a fair scheduling decision.
 
@@ -665,10 +706,18 @@ class WFQScheduler:
             tenant_weight: Tenant weight
             virtual_finish_time: Calculated VFT
             override_reason: Reason for override (if priority_override)
+            target_role: Required node role ("head" or "worker"), None for any
+            target_labels: Required node labels, None or empty for no requirements
 
         Returns:
             FairSchedulingDecision instance
         """
+        # Extract role/labels from task if not explicitly provided
+        if target_role is None:
+            target_role = getattr(task, 'target_role', None)
+        if target_labels is None:
+            target_labels = getattr(task, 'target_labels', []) or []
+
         decision = FairSchedulingDecision(
             decision_id=str(uuid.uuid4()),
             task=task,
@@ -678,6 +727,8 @@ class WFQScheduler:
             tenant_weight=tenant_weight,
             virtual_finish_time=virtual_finish_time,
             override_reason=override_reason,
+            target_role=target_role,
+            target_labels=target_labels,
         )
 
         return decision
@@ -706,6 +757,82 @@ class WFQScheduler:
 
         # Release reservation if any
         await self.reservation_manager.release(task.task_id)
+
+    def filter_nodes_by_role(
+        self,
+        nodes: List[Any],
+        target_role: Optional[str] = None,
+        target_labels: Optional[List[str]] = None,
+    ) -> List[Any]:
+        """Filter nodes by role requirements from scheduling decision.
+
+        This helper method can be used by dispatch logic to filter nodes
+        based on role/labels requirements from the scheduling decision.
+
+        Args:
+            nodes: List of NodeStatus or similar node objects with role/labels attributes
+            target_role: Required role ("head" or "worker"), None for any
+            target_labels: Required labels, None or empty for no requirements
+
+        Returns:
+            Filtered list of nodes matching the requirements
+        """
+        if not nodes:
+            return []
+
+        # If no role or label requirements, return all nodes
+        if target_role is None and (not target_labels or len(target_labels) == 0):
+            return nodes
+
+        filtered = []
+        for node in nodes:
+            # Check role requirement
+            node_role = getattr(node, 'role', None) or "worker"
+            if target_role is not None and node_role != target_role:
+                continue
+
+            # Check label requirements
+            if target_labels:
+                node_labels = set(getattr(node, 'labels', []) or [])
+                labels_match = all(label in node_labels for label in target_labels)
+                if not labels_match:
+                    continue
+
+            filtered.append(node)
+
+        return filtered
+
+    def select_best_node_for_decision(
+        self,
+        nodes: List[Any],
+        decision: FairSchedulingDecision,
+    ) -> Optional[Any]:
+        """Select the best matching node for a scheduling decision.
+
+        Args:
+            nodes: List of available NodeStatus objects
+            decision: FairSchedulingDecision with role/labels requirements
+
+        Returns:
+            Best matching node, or None if no suitable node found
+        """
+        # Filter nodes by decision requirements
+        matching_nodes = self.filter_nodes_by_role(
+            nodes,
+            target_role=decision.target_role,
+            target_labels=decision.target_labels,
+        )
+
+        if not matching_nodes:
+            return None
+
+        # Prefer head nodes for head-required tasks (head can run tasks when explicitly requested)
+        # Otherwise, select based on availability (idle nodes first)
+        idle_nodes = [n for n in matching_nodes if getattr(n, 'status', None) == "idle"]
+        if idle_nodes:
+            return idle_nodes[0]
+
+        return matching_nodes[0] if matching_nodes else None
 
     def get_stats(self) -> Dict[str, Any]:
         """Get scheduler statistics.

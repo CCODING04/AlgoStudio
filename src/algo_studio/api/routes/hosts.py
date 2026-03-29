@@ -63,6 +63,8 @@ async def get_hosts_status():
                 "status": n.status,
                 "is_local": is_local,
                 "hostname": local_info.hostname if is_local else (n.hostname if n.hostname else None),
+                "role": n.role,  # "head" or "worker"
+                "labels": list(n.labels) if n.labels else [],  # Convert set to list for JSON serialization
                 "resources": {
                     "cpu": {
                         "total": n.cpu_total if not is_local else local_info.cpu_count,
@@ -108,6 +110,8 @@ async def get_hosts_status():
                 "status": "online",
                 "is_local": True,
                 "hostname": local_info.hostname,
+                "role": "head",  # Local node is head when Ray not available
+                "labels": ["head", "management", "gpu"],
                 "resources": {
                     "cpu": {
                         "total": local_info.cpu_count,
