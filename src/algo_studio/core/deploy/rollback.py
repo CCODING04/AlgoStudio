@@ -37,18 +37,18 @@ logger = logging.getLogger(__name__)
 # ==============================================================================
 
 ALLOWED_ROLLBACK_COMMANDS = [
-    r"^ray\s+stop",
-    r"^rm\s+-rf\s+\~/.venv-ray",
-    r"^rm\s+-f\s+\~/.deps_installed",
-    r"^rm\s+-f\s+\~/.code_synced",
-    r"^sudo\s+rm\s+-f\s+/etc/sudoers\.d/admin02",
-    r"^rm\s+-f\s+~/.ssh/authorized_keys",
-    r"^test\s+-[defgLrwx]\s+.*",
-    r"^ls\s+-[la]?\s*.*",
-    r"^cat\s+.*",
+    r"^ray\s+stop$",
+    r"^rm\s+-rf\s+(~|/home/\w+)/\.venv-ray$",
+    r"^rm\s+-r\s+(~|/home/\w+)/\.venv-ray$",
+    r"^rm\s+-f\s+(~|/home/\w+)/\.deps_installed$",
+    r"^rm\s+-f\s+(~|/home/\w+)/\.code_synced$",
+    r"^sudo\s+rm\s+-f\s+/etc/sudoers\.d/admin02$",
+    r"^rm\s+-f\s+(~|/home/\w+)/\.ssh/authorized_keys$",
 ]
 
 FORBIDDEN_ROLLBACK_PATTERNS = [
+    r"&&\s*\w+",
+    r"\|\|",
     r";\s*rm\s+-rf",
     r">\s*/dev/sd",
     r"^\s*dd\s+if=.*of=/dev",
@@ -56,6 +56,7 @@ FORBIDDEN_ROLLBACK_PATTERNS = [
     r";\s*reboot",
     r"eval\s+.*\$",
     r"`.*`",
+    r"--force",
 ]
 
 
@@ -189,12 +190,15 @@ class DeploymentSnapshotStore:
     - deploy:snapshot:{deployment_id} - Current snapshot for a deployment
     - deploy:snapshots:node:{node_ip} - List of all snapshots for a node
     - deploy:rollback_history:{deployment_id} - Rollback history for a deployment
+
+    Implements SnapshotStoreInterface for dependency injection.
     """
 
     REDIS_SNAPSHOT_PREFIX = "deploy:snapshot:"
-    REDIS_SNAPSHOT_ID_PREFIX = "deploy:snapshot:id:"  # New: store by snapshot_id for efficient lookup
+    REDIS_SNAPSHOT_ID_PREFIX = "deploy:snapshot:id:"
     REDIS_NODE_SNAPSHOTS_PREFIX = "deploy:snapshots:node:"
     REDIS_ROLLBACK_HISTORY_PREFIX = "deploy:rollback_history:"
+    REDIS_INDEX_KEY = "deploy:snapshot:index"
 
     def __init__(self, redis_host: str = "localhost", redis_port: int = 6380):
         self._redis: Optional[redis.Redis] = None
@@ -210,6 +214,43 @@ class DeploymentSnapshotStore:
                 decode_responses=True,
             )
         return self._redis
+
+    async def save_snapshot(self, snapshot: DeploymentSnapshot) -> bool:
+        """Save a deployment snapshot (implements SnapshotStoreInterface).
+
+        Args:
+            snapshot: DeploymentSnapshot to store
+
+        Returns:
+            True if save succeeded, False otherwise
+        """
+        try:
+            r = await self._get_redis()
+
+            # Store snapshot by deployment_id (current snapshot for deployment)
+            snapshot_key = f"{self.REDIS_SNAPSHOT_PREFIX}{snapshot.deployment_id}"
+            await r.set(snapshot_key, json.dumps(snapshot.to_dict()))
+
+            # Also store by snapshot_id for efficient node-based lookup
+            snapshot_id_key = f"{self.REDIS_SNAPSHOT_ID_PREFIX}{snapshot.snapshot_id}"
+            await r.set(snapshot_id_key, json.dumps(snapshot.to_dict()))
+
+            # Add to node's snapshot list (keep last 10)
+            node_key = f"{self.REDIS_NODE_SNAPSHOTS_PREFIX}{snapshot.node_ip}"
+            await r.lpush(node_key, snapshot.snapshot_id)
+            await r.ltrim(node_key, 0, 9)
+
+            # Update insertion order index
+            import time
+            timestamp = time.time()
+            await r.zadd(self.REDIS_INDEX_KEY, {snapshot.deployment_id: timestamp})
+
+            logger.info(f"Saved deployment snapshot: {snapshot.snapshot_id} for deployment: {snapshot.deployment_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to save snapshot for deployment {snapshot.deployment_id}: {e}")
+            return False
 
     async def create_snapshot(
         self,
@@ -256,26 +297,13 @@ class DeploymentSnapshotStore:
             metadata=metadata or {},
         )
 
-        r = await self._get_redis()
-
-        # Store snapshot by deployment_id (current snapshot for deployment)
-        snapshot_key = f"{self.REDIS_SNAPSHOT_PREFIX}{deployment_id}"
-        await r.set(snapshot_key, json.dumps(snapshot.to_dict()))
-
-        # Also store by snapshot_id for efficient node-based lookup
-        snapshot_id_key = f"{self.REDIS_SNAPSHOT_ID_PREFIX}{snapshot_id}"
-        await r.set(snapshot_id_key, json.dumps(snapshot.to_dict()))
-
-        # Add to node's snapshot list (keep last 10)
-        node_key = f"{self.REDIS_NODE_SNAPSHOTS_PREFIX}{node_ip}"
-        await r.lpush(node_key, snapshot_id)
-        await r.ltrim(node_key, 0, 9)
-
-        logger.info(f"Created deployment snapshot: {snapshot_id} for deployment: {deployment_id}")
+        success = await self.save_snapshot(snapshot)
+        if not success:
+            raise RuntimeError(f"Failed to save snapshot for {deployment_id}")
         return snapshot
 
     async def get_snapshot(self, deployment_id: str) -> Optional[DeploymentSnapshot]:
-        """Get current snapshot for a deployment.
+        """Get current snapshot for a deployment (implements SnapshotStoreInterface).
 
         Args:
             deployment_id: Deployment identifier
@@ -283,13 +311,93 @@ class DeploymentSnapshotStore:
         Returns:
             DeploymentSnapshot if exists, None otherwise
         """
-        r = await self._get_redis()
-        snapshot_key = f"{self.REDIS_SNAPSHOT_PREFIX}{deployment_id}"
-        data = await r.get(snapshot_key)
+        try:
+            r = await self._get_redis()
+            snapshot_key = f"{self.REDIS_SNAPSHOT_PREFIX}{deployment_id}"
+            data = await r.get(snapshot_key)
 
-        if data:
-            return DeploymentSnapshot.from_dict(json.loads(data))
-        return None
+            if data:
+                return DeploymentSnapshot.from_dict(json.loads(data))
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get snapshot for deployment {deployment_id}: {e}")
+            return None
+
+    async def list_snapshots(self, limit: int = 10) -> List[DeploymentSnapshot]:
+        """List recent snapshots (implements SnapshotStoreInterface).
+
+        Args:
+            limit: Maximum number of snapshots to return
+
+        Returns:
+            List of DeploymentSnapshots, most recent first
+        """
+        try:
+            r = await self._get_redis()
+
+            # Get deployment_ids from index, most recent first
+            deployment_ids = await r.zrevrange(self.REDIS_INDEX_KEY, 0, limit - 1)
+
+            if not deployment_ids:
+                return []
+
+            # Fetch all snapshots in batch
+            snapshot_keys = [f"{self.REDIS_SNAPSHOT_PREFIX}{did}" for did in deployment_ids]
+            snapshot_jsons = await r.mget(snapshot_keys)
+
+            snapshots = []
+            for snapshot_json in snapshot_jsons:
+                if snapshot_json is not None:
+                    snapshots.append(DeploymentSnapshot.from_dict(json.loads(snapshot_json)))
+
+            return snapshots
+
+        except Exception as e:
+            logger.error(f"Failed to list snapshots: {e}")
+            return []
+
+    async def delete_snapshot(self, deployment_id: str) -> bool:
+        """Delete a snapshot by deployment ID (implements SnapshotStoreInterface).
+
+        Args:
+            deployment_id: Unique identifier for the deployment
+
+        Returns:
+            True if deletion succeeded, False otherwise
+        """
+        try:
+            r = await self._get_redis()
+            snapshot_key = f"{self.REDIS_SNAPSHOT_PREFIX}{deployment_id}"
+
+            # Get snapshot first to clean up related keys
+            snapshot_json = await r.get(snapshot_key)
+            if snapshot_json:
+                snapshot_data = json.loads(snapshot_json)
+                snapshot_id = snapshot_data.get("snapshot_id")
+                node_ip = snapshot_data.get("node_ip")
+
+                # Delete snapshot_id key
+                if snapshot_id:
+                    await r.delete(f"{self.REDIS_SNAPSHOT_ID_PREFIX}{snapshot_id}")
+
+                # Remove from node's snapshot list
+                if node_ip:
+                    await r.lrem(f"{self.REDIS_NODE_SNAPSHOTS_PREFIX}{node_ip}", 0, snapshot_id)
+
+            # Delete the main snapshot and index entry
+            pipe = r.pipeline()
+            pipe.delete(snapshot_key)
+            pipe.zrem(self.REDIS_INDEX_KEY, deployment_id)
+            results = await pipe.execute()
+
+            deleted = results[0] > 0
+            if deleted:
+                logger.info(f"Deleted snapshot for deployment: {deployment_id}")
+            return deleted
+
+        except Exception as e:
+            logger.error(f"Failed to delete snapshot for deployment {deployment_id}: {e}")
+            return False
 
     async def get_snapshots_by_node(self, node_ip: str) -> List[DeploymentSnapshot]:
         """Get all snapshots for a node.
@@ -300,52 +408,59 @@ class DeploymentSnapshotStore:
         Returns:
             List of DeploymentSnapshots (most recent first)
         """
-        r = await self._get_redis()
-        node_key = f"{self.REDIS_NODE_SNAPSHOTS_PREFIX}{node_ip}"
+        try:
+            r = await self._get_redis()
+            node_key = f"{self.REDIS_NODE_SNAPSHOTS_PREFIX}{node_ip}"
 
-        snapshot_ids = await r.lrange(node_key, 0, -1)
-        if not snapshot_ids:
+            snapshot_ids = await r.lrange(node_key, 0, -1)
+            if not snapshot_ids:
+                return []
+
+            # Batch fetch all snapshots by snapshot_id (O(1) per key instead of O(n) scan)
+            snapshot_keys = [f"{self.REDIS_SNAPSHOT_ID_PREFIX}{snap_id}" for snap_id in snapshot_ids]
+            snapshot_data_list = await r.mget(snapshot_keys)
+
+            snapshots = []
+            for snap_data_json in snapshot_data_list:
+                if snap_data_json:
+                    snap_data = json.loads(snap_data_json)
+                    # Double-check node_ip matches (defensive)
+                    if snap_data.get("node_ip") == node_ip:
+                        snapshots.append(DeploymentSnapshot.from_dict(snap_data))
+
+            return snapshots
+        except Exception as e:
+            logger.error(f"Failed to get snapshots for node {node_ip}: {e}")
             return []
 
-        # Batch fetch all snapshots by snapshot_id (O(1) per key instead of O(n) scan)
-        snapshot_keys = [f"{self.REDIS_SNAPSHOT_ID_PREFIX}{snap_id}" for snap_id in snapshot_ids]
-        snapshot_data_list = await r.mget(snapshot_keys)
-
-        snapshots = []
-        for snap_data_json in snapshot_data_list:
-            if snap_data_json:
-                snap_data = json.loads(snap_data_json)
-                # Double-check node_ip matches (defensive)
-                if snap_data.get("node_ip") == node_ip:
-                    snapshots.append(DeploymentSnapshot.from_dict(snap_data))
-
-        return snapshots
-
     async def save_rollback_history(self, entry: RollbackHistoryEntry) -> None:
-        """Save rollback history entry.
+        """Save rollback history entry (implements SnapshotStoreInterface).
 
         Args:
             entry: RollbackHistoryEntry to save
         """
-        r = await self._get_redis()
-        history_key = f"{self.REDIS_ROLLBACK_HISTORY_PREFIX}{entry.deployment_id}"
+        try:
+            r = await self._get_redis()
+            history_key = f"{self.REDIS_ROLLBACK_HISTORY_PREFIX}{entry.deployment_id}"
 
-        # Get existing history
-        history_data = await r.get(history_key)
-        history = []
-        if history_data:
-            history = json.loads(history_data)
+            # Get existing history
+            history_data = await r.get(history_key)
+            history = []
+            if history_data:
+                history = json.loads(history_data)
 
-        # Add new entry
-        history.append(entry.to_dict())
+            # Add new entry
+            history.append(entry.to_dict())
 
-        # Keep last 50 entries
-        history = history[-50:]
+            # Keep last 50 entries
+            history = history[-50:]
 
-        await r.set(history_key, json.dumps(history))
+            await r.set(history_key, json.dumps(history))
+        except Exception as e:
+            logger.error(f"Failed to save rollback history for deployment {entry.deployment_id}: {e}")
 
     async def get_rollback_history(self, deployment_id: str) -> List[RollbackHistoryEntry]:
-        """Get rollback history for a deployment.
+        """Get rollback history for a deployment (implements SnapshotStoreInterface).
 
         Args:
             deployment_id: Deployment identifier
@@ -353,30 +468,34 @@ class DeploymentSnapshotStore:
         Returns:
             List of RollbackHistoryEntries (most recent first)
         """
-        r = await self._get_redis()
-        history_key = f"{self.REDIS_ROLLBACK_HISTORY_PREFIX}{deployment_id}"
+        try:
+            r = await self._get_redis()
+            history_key = f"{self.REDIS_ROLLBACK_HISTORY_PREFIX}{deployment_id}"
 
-        history_data = await r.get(history_key)
-        if not history_data:
+            history_data = await r.get(history_key)
+            if not history_data:
+                return []
+
+            history = json.loads(history_data)
+            entries = []
+            for entry_data in history:
+                entry = RollbackHistoryEntry(
+                    rollback_id=entry_data["rollback_id"],
+                    deployment_id=entry_data["deployment_id"],
+                    snapshot_id=entry_data["snapshot_id"],
+                    status=RollbackStatus(entry_data["status"]),
+                    initiated_by=entry_data["initiated_by"],
+                    initiated_at=datetime.fromisoformat(entry_data["initiated_at"]),
+                    completed_at=datetime.fromisoformat(entry_data["completed_at"]) if entry_data.get("completed_at") else None,
+                    verification_result=entry_data.get("verification_result"),
+                    error=entry_data.get("error"),
+                )
+                entries.append(entry)
+
+            return entries
+        except Exception as e:
+            logger.error(f"Failed to get rollback history for deployment {deployment_id}: {e}")
             return []
-
-        history = json.loads(history_data)
-        entries = []
-        for entry_data in history:
-            entry = RollbackHistoryEntry(
-                rollback_id=entry_data["rollback_id"],
-                deployment_id=entry_data["deployment_id"],
-                snapshot_id=entry_data["snapshot_id"],
-                status=RollbackStatus(entry_data["status"]),
-                initiated_by=entry_data["initiated_by"],
-                initiated_at=datetime.fromisoformat(entry_data["initiated_at"]),
-                completed_at=datetime.fromisoformat(entry_data["completed_at"]) if entry_data.get("completed_at") else None,
-                verification_result=entry_data.get("verification_result"),
-                error=entry_data.get("error"),
-            )
-            entries.append(entry)
-
-        return entries
 
 
 class RollbackService:
@@ -387,10 +506,15 @@ class RollbackService:
     2. Execute rollback steps in reverse order
     3. Verify rollback success
     4. Update rollback history
+
+    Uses SnapshotStoreInterface for dependency injection, with RedisSnapshotStore
+    as the default implementation.
     """
 
-    def __init__(self, snapshot_store: DeploymentSnapshotStore):
-        self.snapshot_store = snapshot_store
+    def __init__(self, snapshot_store: "SnapshotStoreInterface" = None):
+        # Import here to avoid circular import
+        from algo_studio.core.interfaces import RedisSnapshotStore
+        self.snapshot_store = snapshot_store if snapshot_store is not None else RedisSnapshotStore()
         self._rollback_steps = {
             "start_ray": self._rollback_ray,
             "sync_code": self._rollback_code,
@@ -416,7 +540,7 @@ class RollbackService:
         Returns:
             RollbackHistoryEntry with result
         """
-        rollback_id = f"rollback-{deployment_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        rollback_id = f"rollback-{deployment_id}-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
 
         # Get snapshot
         snapshot = await self.snapshot_store.get_snapshot(deployment_id)
@@ -885,7 +1009,7 @@ class DeploySnapshotMixin:
         This should be called before starting a new deployment
         to record the current state for potential rollback.
         """
-        snapshot_store = DeploymentSnapshotStore()
+        snapshot_store = getattr(self, 'snapshot_store', None) or DeploymentSnapshotStore()
         return await snapshot_store.create_snapshot(
             deployment_id=deployment_id,
             node_ip=node_ip,
@@ -895,3 +1019,32 @@ class DeploySnapshotMixin:
             ray_head_ip=ray_head_ip,
             ray_port=ray_port,
         )
+
+
+# ==============================================================================
+# Interface Registration (to avoid circular import at module load time)
+# ==============================================================================
+
+def _register_as_snapshot_store_interface():
+    """Register DeploymentSnapshotStore as implementing SnapshotStoreInterface.
+
+    This is done at module load time to enable dependency injection with
+    SnapshotStoreInterface type hints. The registration uses ABC's virtual
+    subclass mechanism to avoid requiring SnapshotStoreInterface to be imported
+    at class definition time (which would cause a circular import).
+
+    Note: DeploymentSnapshotStore already implements all methods required by
+    SnapshotStoreInterface, so this registration is purely for type checking
+    and dependency injection purposes.
+    """
+    try:
+        from algo_studio.core.interfaces.snapshot_store import SnapshotStoreInterface
+        SnapshotStoreInterface.register(DeploymentSnapshotStore)
+    except ImportError:
+        # If interfaces module cannot be imported (e.g., during early bootstrap),
+        # skip registration. The class will still work via duck typing.
+        pass
+
+
+_register_as_snapshot_store_interface()
+del _register_as_snapshot_store_interface

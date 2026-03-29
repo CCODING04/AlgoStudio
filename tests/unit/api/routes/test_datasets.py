@@ -59,11 +59,33 @@ def make_auth_headers(
 
 class MockUser:
     """Mock User for testing."""
+    # Role to permissions mapping (matches rbac.py ROLE_PERMISSIONS)
+    ROLE_PERMISSIONS = {
+        "viewer": ["task.read", "dataset.read", "deploy.read"],
+        "developer": [
+            "task.read", "task.create", "task.delete",
+            "dataset.read", "dataset.create", "dataset.write",
+            "deploy.read", "deploy.write",
+        ],
+        "admin": [
+            "task.read", "task.create", "task.delete",
+            "admin.user", "admin.quota", "admin.alert",
+            "dataset.read", "dataset.create", "dataset.write", "dataset.delete", "dataset.admin",
+            "deploy.read", "deploy.write",
+        ],
+    }
+
     def __init__(self, user_id="test-user", role="developer", is_superuser=False):
         self.user_id = user_id
         self.username = user_id
         self.role = role
         self.is_superuser = is_superuser
+
+    def has_permission(self, permission: str) -> bool:
+        """Check if user has a specific permission (matches User model)."""
+        if self.is_superuser:
+            return True
+        return permission in self.ROLE_PERMISSIONS.get(self.role, [])
 
 
 class MockDataset:
@@ -593,7 +615,7 @@ class TestDatasetsRouter:
     # ==================== Delete Dataset Tests ====================
 
     @pytest.mark.asyncio
-    async def test_delete_dataset_success(self, client, auth_headers, test_app):
+    async def test_delete_dataset_success(self, client, admin_auth_headers, test_app):
         """Test soft deleting a dataset successfully."""
         mock_dataset = MockDataset()
 
@@ -612,7 +634,7 @@ class TestDatasetsRouter:
             try:
                 response = await client.delete(
                     f"/api/datasets/{mock_dataset.dataset_id}",
-                    headers=auth_headers,
+                    headers=admin_auth_headers,
                 )
 
                 assert response.status_code == 200
@@ -623,7 +645,7 @@ class TestDatasetsRouter:
                 test_app.dependency_overrides.clear()
 
     @pytest.mark.asyncio
-    async def test_delete_dataset_not_found(self, client, auth_headers, test_app):
+    async def test_delete_dataset_not_found(self, client, admin_auth_headers, test_app):
         """Test deleting a non-existent dataset returns 404."""
         mock_results = [
             make_mock_result(scalar_one_or_none=None),
@@ -639,7 +661,7 @@ class TestDatasetsRouter:
         try:
             response = await client.delete(
                 "/api/datasets/non-existent-id",
-                headers=auth_headers,
+                headers=admin_auth_headers,
             )
 
             assert response.status_code == 404

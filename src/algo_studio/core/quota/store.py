@@ -656,11 +656,17 @@ class SQLiteQuotaStore(QuotaStoreInterface):
         """Get the inheritance chain from this quota up to root.
 
         Returns list of quota_ids from this quota to root (global).
+        If a cycle is detected, returns the chain up to the cycle point.
         """
         chain = []
+        visited = set()
         current_id = quota_id
 
         while current_id:
+            if current_id in visited:
+                # Cycle detected - break to avoid infinite loop
+                break
+            visited.add(current_id)
             quota = self.get_quota(current_id)
             if quota is None:
                 break

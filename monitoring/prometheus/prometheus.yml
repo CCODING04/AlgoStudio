@@ -1,0 +1,59 @@
+# Prometheus configuration for AlgoStudio
+# Version: v1.0
+# Date: 2026-03-26
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files:
+  - "prometheus/alerts.yml"
+  - "prometheus/perf_rules.yml"
+
+scrape_configs:
+  # AlgoStudio API metrics
+  - job_name: 'algo_studio_api'
+    static_configs:
+      - targets: ['192.168.0.126:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Ray metrics
+  - job_name: 'ray'
+    static_configs:
+      - targets: ['192.168.0.126:8265']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Node exporter for system metrics
+  - job_name: 'node_exporter'
+    static_configs:
+      - targets:
+          - '192.168.0.126:9100'
+          - '192.168.0.115:9100'
+    scrape_interval: 30s
+
+  # NVIDIA GPU exporter
+  - job_name: 'nvidia_gpu'
+    static_configs:
+      - targets:
+          - '192.168.0.126:9445'
+          - '192.168.0.115:9445'
+    scrape_interval: 5s
+
+  # Redis metrics
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['192.168.0.126:6380']
+    scrape_interval: 10s
+
+  # Pushgateway for custom metrics
+  - job_name: 'pushgateway'
+    static_configs:
+      - targets: ['192.168.0.126:9091']
+    scrape_interval: 30s

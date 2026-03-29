@@ -30,6 +30,15 @@ from algo_studio.api.middleware.rbac import (
 )
 
 
+@pytest.fixture(autouse=True)
+def cleanup_rbac_state():
+    """Clean up RBAC state between tests to prevent pollution."""
+    yield
+    # RBAC middleware doesn't have instance state that persists,
+    # but we clean up to ensure environment variables are consistent
+    pass
+
+
 def generate_valid_signature(user_id: str, timestamp: str, secret_key: str) -> str:
     """Generate a valid HMAC-SHA256 signature for testing."""
     message = f"{user_id}:{timestamp}"

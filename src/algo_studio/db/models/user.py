@@ -53,13 +53,19 @@ class User(Base, TimestampMixin):
         if self.is_superuser:
             return True
 
-        # Role-based permissions
+        # Role-based permissions (must match RBACMiddleware.ROLE_PERMISSIONS)
         role_permissions = {
-            "viewer": ["task.read"],
-            "developer": ["task.create", "task.read", "task.delete"],
+            "viewer": ["task.read", "dataset.read", "deploy.read"],
+            "developer": [
+                "task.read", "task.create", "task.delete",
+                "dataset.read", "dataset.create", "dataset.write",
+                "deploy.read", "deploy.write",
+            ],
             "admin": [
-                "task.create", "task.read", "task.delete",
+                "task.read", "task.create", "task.delete",
                 "admin.user", "admin.quota", "admin.alert",
+                "dataset.read", "dataset.create", "dataset.write", "dataset.delete", "dataset.admin",
+                "deploy.read", "deploy.write",
             ],
         }
 

@@ -51,9 +51,32 @@ source .venv-ray/bin/activate
 bash scripts/join_cluster.sh 192.168.0.126
 ```
 
-## 第三步：启动 API 服务
+## 第三步：初始化数据库
 
 ```bash
+# 初始化数据库表
+cd /home/admin02/Code/Dev/AlgoStudio
+PYTHONPATH=src .venv/bin/python << 'EOF'
+from algo_studio.db.session import db
+from algo_studio.db.models.base import Base
+import asyncio
+
+async def init_db():
+    db.init()
+    async with db._engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    print("Database tables created successfully")
+
+asyncio.run(init_db())
+EOF
+```
+
+## 第四步：启动 API 服务
+
+```bash
+# 设置 API 认证密钥 (必须设置，否则 API 调用被拒绝)
+export RBAC_SECRET_KEY='your-secret-key-here'
+
 # 在 Head 节点新终端执行
 cd /home/admin02/Code/Dev/AlgoStudio
 PYTHONPATH=src .venv/bin/uvicorn algo_studio.api.main:app --host 0.0.0.0 --port 8000
@@ -83,7 +106,7 @@ Web Console 功能:
 - **任务列表** - 查看和管理所有训练/推理/验证任务
 - **主机监控** - 实时 CPU/GPU/内存/磁盘状态
 
-## 第六步：提交训练任务
+## 第七步：提交训练任务
 
 ### 通过 Web Console 提交
 
@@ -96,20 +119,37 @@ Web Console 功能:
 ### 通过 API 提交
 
 ```bash
+# 设置认证参数
+USER_ID="test-user"
+TIMESTAMP=$(date +%s)
+SECRET="your-secret-key-here"
+MSG="${USER_ID}:${TIMESTAMP}"
+SIGNATURE=$(echo -n "$MSG" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')
+
 # 提交训练任务
 curl -X POST http://localhost:8000/api/tasks \
   -H "Content-Type: application/json" \
+  -H "X-User-ID: $USER_ID" \
+  -H "X-Timestamp: $TIMESTAMP" \
+  -H "X-Signature: $SIGNATURE" \
+  -H "X-User-Role: admin" \
   -d '{
     "task_type": "train",
     "algorithm_name": "simple_classifier",
     "algorithm_version": "v1",
     "config": {
-      "data_path": "/data/mnist",
       "epochs": 10,
-      "batch_size": 32,
-      "learning_rate": 0.001
+      "batch_size": 32
     }
   }'
+
+# 分发任务到 Ray 集群执行
+# 注意：任务提交后需要手动分发
+curl -X POST http://localhost:8000/api/tasks/<task_id>/dispatch \
+  -H "X-User-ID: $USER_ID" \
+  -H "X-Timestamp: $TIMESTAMP" \
+  -H "X-Signature: $SIGNATURE" \
+  -H "X-User-Role: admin"
 ```
 
 ### 通过 CLI 提交

@@ -1,0 +1,19 @@
+# Grafana Dashboard Provisioning Configuration
+# Version: v1.0
+# Date: 2026-03-26
+
+apiVersion: 1
+
+providers:
+  - name: 'AlgoStudio Dashboards'
+    orgId: 1
+    folder: 'AlgoStudio'
+    folderUid: 'algo_studio'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/algo_studio
+      # For local development, use relative path:
+      # path: ../grafana/dashboards

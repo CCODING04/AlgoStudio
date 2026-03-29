@@ -324,7 +324,9 @@ class TestQuotaManager:
             "parent_quota_id": "team-a",
             "cpu_cores": 20,
             "gpu_count": 1,
-            "memory_gb": 64.0,
+            "gpu_memory_gb": 8.0,
+            "memory_gb": 128.0,
+            "concurrent_tasks": 5,
         })
         return "alice"
 
@@ -487,8 +489,8 @@ class TestQuotaManager:
 
     def test_get_usage_percentage(self, manager, store, user_quota):
         """Test calculating usage percentages."""
-        # Use 10 of 20 cores = 50%
-        store.increment_usage("alice", ResourceQuota(cpu_cores=10, memory_gb=32))
+        # Use 10 of 20 cores = 50%, 64 of 128GB memory = 50%
+        store.increment_usage("alice", ResourceQuota(cpu_cores=10, memory_gb=64))
 
         usage = store.get_usage("alice")
         quota = store.get_quota("alice")
@@ -547,12 +549,13 @@ class TestQuotaManager:
             cpu_cores=15, gpu_count=1, memory_gb=40
         ))
 
-        # Alice has: 20 cores, 1 GPU, 64GB memory
+        # Alice has: 20 cores, 1 GPU, 128GB memory
         # Used: 15 cores, 1 GPU, 40GB memory
-        # Request: 10 cores, 0 GPU, 30GB - should fail on GPU (already used 1 of 1)
+        # Available: 5 cores, 0 GPU, 88GB memory
+        # Request: 5 cores, 1 GPU, 30GB - should fail on GPU (0 available, 1 requested)
         allowed, quota, usage, reasons = manager.check_quota(
             "alice", "team-a",
-            ResourceQuota(cpu_cores=10, gpu_count=0, memory_gb=30)
+            ResourceQuota(cpu_cores=5, gpu_count=1, memory_gb=30)
         )
         assert allowed is False
         assert any("GPU" in r for r in reasons)
@@ -560,7 +563,7 @@ class TestQuotaManager:
         # Same request without GPU - should succeed
         allowed, quota, usage, reasons = manager.check_quota(
             "alice", "team-a",
-            ResourceQuota(cpu_cores=10, memory_gb=30)
+            ResourceQuota(cpu_cores=5, memory_gb=30)
         )
         assert allowed is True
 

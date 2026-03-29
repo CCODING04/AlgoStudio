@@ -1,0 +1,85 @@
+# AlgoStudio 告警配置
+# 用于监控集群健康状态并发送告警
+
+cluster:
+  name: "AlgoStudio-Cluster"
+  head_ip: "192.168.0.126"
+  worker_ips:
+    - "192.168.0.115"
+  redis_port: 6380
+  sentinel_port: 26380
+
+# 告警规则
+alerts:
+  # Ray 节点检查
+  - name: "ray_node_down"
+    condition: "nodes.alive < nodes.total"
+    severity: "critical"
+    message: "Ray 节点离线: {{alive}}/{{total}} 存活"
+    cooldown: 300  # 5分钟内不重复告警
+
+  # GPU 检查
+  - name: "gpu_unavailable"
+    condition: "gpu.available == 0"
+    severity: "warning"
+    message: "GPU 不可用，请检查 GPU 状态"
+    cooldown: 600
+
+  # Redis Sentinel 检查
+  - name: "redis_master_down"
+    condition: "sentinel.master_status != 'connected'"
+    severity: "critical"
+    message: "Redis Master 离线"
+    cooldown: 60
+
+  - name: "redis_no_slave"
+    condition: "sentinel.slave_count == 0"
+    severity: "warning"
+    message: "Redis 无可用从节点"
+    cooldown: 300
+
+  # 任务队列检查
+  - name: "task_queue_full"
+    condition: "tasks.pending > 100"
+    severity: "warning"
+    message: "任务队列积压: {{tasks.pending}} 个待处理任务"
+    cooldown: 600
+
+  - name: "task_failure_rate"
+    condition: "tasks.failure_rate > 0.1"
+    severity: "critical"
+    message: "任务失败率过高: {{tasks.failure_rate}}%"
+    cooldown: 300
+
+  # 磁盘空间检查
+  - name: "disk_space_low"
+    condition: "disk.used_percent > 90"
+    severity: "warning"
+    message: "磁盘空间不足: {{disk.used_percent}}% 已使用"
+    cooldown: 3600
+
+  # JuiceFS 挂载检查
+  - name: "juicefs_not_mounted"
+    condition: "juicefs.mounted == false"
+    severity: "critical"
+    message: "JuiceFS 未挂载"
+    cooldown: 300
+
+# Webhook 配置
+webhook:
+  enabled: true
+  url: ""  # 填写 Webhook URL
+  method: "POST"
+  headers:
+    Content-Type: "application/json"
+  # 支持的告警级别 (留空表示全部)
+  severity_filter: []
+
+# 告警接收者
+receivers:
+  - name: "log"
+    type: "file"
+    path: "/home/admin02/Code/Dev/AlgoStudio/logs/alerts.log"
+
+  - name: "stdout"
+    type: "console"

@@ -9,9 +9,13 @@ This module provides:
 - Mock fixtures for Ray and external dependencies
 """
 
+# Set RBAC secret key BEFORE any other imports
+# This must be set before algo_studio.api.middleware.rbac is imported
+import os
+os.environ["RBAC_SECRET_KEY"] = "test-secret-key-12345"
+
 import pytest
 import sys
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime

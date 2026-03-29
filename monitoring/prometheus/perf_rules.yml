@@ -1,0 +1,136 @@
+# Prometheus recording rules for AlgoStudio performance metrics
+# Version: v1.0
+# Date: 2026-03-26
+
+groups:
+  - name: algo_studio_performance
+    interval: 15s
+    rules:
+      # API performance metrics
+      - record: algo_studio:api_latency_p50
+        expr: histogram_quantile(0.50, rate(algo_studio_api_request_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:api_latency_p95
+        expr: histogram_quantile(0.95, rate(algo_studio_api_request_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:api_latency_p99
+        expr: histogram_quantile(0.99, rate(algo_studio_api_request_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:api_request_rate
+        expr: rate(algo_studio_api_requests_total[5m])
+
+      - record: algo_studio:api_error_rate
+        expr: rate(algo_studio_api_errors_total[5m]) / rate(algo_studio_api_requests_total[5m])
+
+      # SSE performance metrics
+      - record: algo_studio:sse_connections_current
+        expr: algo_studio_sse_active_connections
+
+      - record: algo_studio:sse_message_rate
+        expr: rate(algo_studio_sse_messages_total[5m])
+
+      - record: algo_studio:sse_message_latency_p95
+        expr: histogram_quantile(0.95, rate(algo_studio_sse_message_duration_seconds_bucket[5m]))
+
+      # GPU performance metrics
+      - record: algo_studio:gpu_utilization_avg
+        expr: avg(rate(nvidia_gpu_utilization[1m]))
+
+      - record: algo_studio:gpu_utilization_max
+        expr: max(rate(nvidia_gpu_utilization[1m]))
+
+      - record: algo_studio:gpu_memory_used_percent
+        expr: 1 - nvidia_gpu_memory_free_bytes / nvidia_gpu_memory_total_bytes
+
+      - record: algo_studio:gpu_temperature_avg
+        expr: avg(nvidia_gpu_temperature)
+
+      # Database performance metrics
+      - record: algo_studio:db_operation_latency_p50
+        expr: histogram_quantile(0.50, rate(algo_studio_db_operation_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:db_operation_latency_p95
+        expr: histogram_quantile(0.95, rate(algo_studio_db_operation_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:db_operation_latency_p99
+        expr: histogram_quantile(0.99, rate(algo_studio_db_operation_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:db_wal_write_latency_p99
+        expr: histogram_quantile(0.99, rate(algo_studio_db_wal_write_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:db_queries_per_second
+        expr: rate(algo_studio_db_queries_total[5m])
+
+      # Redis performance metrics
+      - record: algo_studio:redis_latency_p50
+        expr: histogram_quantile(0.50, rate(algo_studio_redis_operation_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:redis_latency_p99
+        expr: histogram_quantile(0.99, rate(algo_studio_redis_operation_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:redis_operations_per_second
+        expr: rate(algo_studio_redis_operations_total[5m])
+
+      - record: algo_studio:redis_memory_used
+        expr: algo_studio_redis_memory_used_bytes
+
+      # Task scheduling metrics
+      - record: algo_studio:scheduling_latency_p50
+        expr: histogram_quantile(0.50, rate(algo_studio_task_scheduling_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:scheduling_latency_p95
+        expr: histogram_quantile(0.95, rate(algo_studio_task_scheduling_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:scheduling_latency_p99
+        expr: histogram_quantile(0.99, rate(algo_studio_task_scheduling_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:tasks_dispatched_per_second
+        expr: rate(algo_studio_tasks_dispatched_total[5m])
+
+      - record: algo_studio:tasks_pending
+        expr: algo_studio_tasks_pending
+
+      - record: algo_studio:tasks_running
+        expr: algo_studio_tasks_running
+
+      - record: algo_studio:tasks_completed_per_second
+        expr: rate(algo_studio_tasks_completed_total[5m])
+
+      - record: algo_studio:tasks_failed_per_second
+        expr: rate(algo_studio_tasks_failed_total[5m])
+
+      # Training performance metrics
+      - record: algo_studio:training_startup_latency_p95
+        expr: histogram_quantile(0.95, rate(algo_studio_training_startup_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:training_epoch_duration_p95
+        expr: histogram_quantile(0.95, rate(algo_studio_training_epoch_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:training_throughput
+        expr: rate(algo_studio_training_samples_processed_total[5m])
+
+      # Inference performance metrics
+      - record: algo_studio:inference_latency_p50
+        expr: histogram_quantile(0.50, rate(algo_studio_inference_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:inference_latency_p99
+        expr: histogram_quantile(0.99, rate(algo_studio_inference_duration_seconds_bucket[5m]))
+
+      - record: algo_studio:inference_throughput
+        expr: rate(algo_studio_inference_requests_total[5m])
+
+      # Node performance metrics
+      - record: algo_studio:node_cpu_usage_percent
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+      - record: algo_studio:node_memory_usage_percent
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100
+
+      - record: algo_studio:node_disk_io_time_percent
+        expr: rate(node_disk_io_time_seconds_total[5m]) * 100
+
+      - record: algo_studio:node_network_receive_bytes_per_second
+        expr: rate(node_network_receive_bytes_total[5m])
+
+      - record: algo_studio:node_network_transmit_bytes_per_second
+        expr: rate(node_network_transmit_bytes_total[5m])

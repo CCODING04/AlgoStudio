@@ -119,15 +119,14 @@ class RBACMiddleware(BaseHTTPMiddleware):
         "/api/hosts/status",
         "/api/cluster/",
         "/api/algorithms",
-        # SSE progress endpoints - these are authenticated via headers but don't need signature
-        # verification since they are internal API calls from the frontend proxy
-        "/api/tasks/",
     ]
 
-    # SSE progress endpoints - these require auth but skip permission checks
-    # because progress streaming should be accessible for monitoring
-    # Note: /api/tasks/ is now in PUBLIC_ROUTES to avoid signature verification issues
-    SSE_PROGRESS_ROUTES = []
+    # SSE progress endpoints - these require auth headers but skip signature verification
+    # and permission checks because progress streaming should be accessible for monitoring
+    # Format: routes that start with prefix and end with /progress
+    SSE_PROGRESS_ROUTES = [
+        "/api/tasks/",  # /api/tasks/{task_id}/progress
+    ]
 
     # Routes that require specific permissions
     PROTECTED_ROUTES = {
@@ -142,6 +141,9 @@ class RBACMiddleware(BaseHTTPMiddleware):
         # Skip auth for public routes
         if self._is_public_route(request.url.path):
             return await call_next(request)
+
+        # Check if this is an SSE progress route (auth required but skip signature verification)
+        is_sse_route = self._is_sse_progress_route(request.url.path)
 
         # Extract user info from headers
         user_id = request.headers.get("X-User-ID")
@@ -165,19 +167,21 @@ class RBACMiddleware(BaseHTTPMiddleware):
             )
 
         # Verify signature to prevent header forgery
-        if not self._verify_signature(user_id, timestamp_str or "", signature or ""):
-            return JSONResponse(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                content={
-                    "detail": {
-                        "error": {
-                            "code": "INVALID_SIGNATURE",
-                            "message": "Invalid or missing X-Signature header",
-                            "details": {},
+        # Skip signature verification for SSE routes (internal monitoring endpoints)
+        if not is_sse_route:
+            if not self._verify_signature(user_id, timestamp_str or "", signature or ""):
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={
+                        "detail": {
+                            "error": {
+                                "code": "INVALID_SIGNATURE",
+                                "message": "Invalid or missing X-Signature header",
+                                "details": {},
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
 
         # Validate role
         try:
@@ -199,7 +203,7 @@ class RBACMiddleware(BaseHTTPMiddleware):
         request.state.user_role = role
 
         # Check permissions for protected routes (skip for SSE progress endpoints)
-        if not self._is_sse_progress_route(request.url.path):
+        if not is_sse_route:
             required_permissions = self._get_required_permissions(request.url.path, request.method)
             if required_permissions:
                 for perm in required_permissions:
@@ -305,6 +309,10 @@ class RBACMiddleware(BaseHTTPMiddleware):
         # DELETE /api/tasks/{id} requires task.delete
         if path.startswith("/api/tasks/") and method == "DELETE":
             return [Permission.TASK_DELETE]
+
+        # POST /api/tasks/{id}/dispatch requires task.create
+        if path.startswith("/api/tasks/") and path.endswith("/dispatch") and method == "POST":
+            return [Permission.TASK_CREATE]
 
         # GET /api/tasks requires task.read
         if path == "/api/tasks" and method == "GET":

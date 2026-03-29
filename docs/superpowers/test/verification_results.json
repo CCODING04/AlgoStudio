@@ -1,0 +1,68 @@
+{
+  "dashboard": {
+    "status": "PASS",
+    "details": [
+      "Navigating to Dashboard...",
+      "  - Stat card 'stat-card-total' is visible",
+      "  - Stat card 'stat-card-running' is visible",
+      "  - Stat card 'stat-card-pending' is visible",
+      "  - Stat card 'stat-card-failed' is visible",
+      "  - Cluster status section visible",
+      "  - Resource chart section visible",
+      "  - Recent tasks section visible",
+      "Dashboard verification PASSED",
+      "\nConsole errors captured: 2",
+      "  - Warning: async/await is not yet supported in Client Components, only Server Components. This error is often caused by accidentally adding `'use client'` to a module that was originally written for the",
+      "  - Warning: A component was suspended by an uncached promise. Creating promises inside a Client Component or hook is not yet supported, except via a Suspense-compatible library or framework.%s \n    at Da"
+    ]
+  },
+  "task_list": {
+    "status": "PASS",
+    "details": [
+      "Navigating to Task List...",
+      "  - Task list page title visible",
+      "  - '\u65b0\u5efa\u4efb\u52a1' button is visible",
+      "  - Status filter dropdown visible",
+      "  - Search input visible",
+      "Task list verification PASSED"
+    ]
+  },
+  "task_wizard": {
+    "status": "PASS",
+    "details": [
+      "Testing Task Wizard...",
+      "  - Task wizard dialog opened successfully",
+      "Task wizard verification PASSED"
+    ]
+  },
+  "task_detail": {
+    "status": "PASS",
+    "details": [
+      "Navigating to Task List to find a task...",
+      "  - Task detail page title visible",
+      "  - Basic info section visible",
+      "  - Execution info section visible",
+      "  - Task detail page loaded successfully",
+      "Task detail verification PASSED"
+    ]
+  },
+  "hosts": {
+    "status": "PASS",
+    "details": [
+      "Navigating to Host List...",
+      "  - Host list page title visible",
+      "  - Host status indicators visible",
+      "Host list verification PASSED"
+    ]
+  },
+  "deploy": {
+    "status": "PASS",
+    "details": [
+      "Navigating to Deploy page...",
+      "  - Deploy page title visible",
+      "  - Algorithm selector visible",
+      "  - Host selector visible",
+      "Deploy verification PASSED"
+    ]
+  }
+}

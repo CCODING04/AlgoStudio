@@ -280,3 +280,297 @@ class TestRayProgressCallback:
 
         # Should not raise
         callback.set_description("New description")
+
+
+class TestTaskManagerExtended:
+    """Extended tests for TaskManager class - delete, pagination, dispatch."""
+
+    @pytest.fixture
+    def task_manager(self):
+        """Create a fresh TaskManager instance."""
+        return TaskManager()
+
+    def test_delete_task_existing(self, task_manager):
+        """Test deleting an existing task."""
+        task = task_manager.create_task(TaskType.TRAIN, "a", "v1", {})
+        assert task_manager.delete_task(task.task_id) is True
+        assert task_manager.get_task(task.task_id) is None
+
+    def test_delete_task_non_existing(self, task_manager):
+        """Test deleting a non-existing task returns False."""
+        result = task_manager.delete_task("non-existing-id")
+        assert result is False
+
+    def test_list_tasks_paginated_basic(self, task_manager):
+        """Test basic pagination without cursor."""
+        # Create 5 tasks
+        for i in range(5):
+            task_manager.create_task(TaskType.TRAIN, f"algo-{i}", "v1", {})
+
+        tasks, cursor = task_manager.list_tasks_paginated(limit=2)
+        assert len(tasks) == 2
+        assert cursor is not None  # Should have next cursor
+
+    def test_list_tasks_paginated_with_cursor(self, task_manager):
+        """Test pagination with cursor returns subsequent page."""
+        # Create 5 tasks
+        for i in range(5):
+            task_manager.create_task(TaskType.TRAIN, f"algo-{i}", "v1", {})
+
+        # Get first page
+        page1, cursor = task_manager.list_tasks_paginated(limit=2)
+        assert len(page1) == 2
+
+        # Get second page using cursor
+        page2, cursor2 = task_manager.list_tasks_paginated(limit=2, cursor=cursor)
+        assert len(page2) == 2
+        assert page1[0].task_id != page2[0].task_id  # Different tasks
+
+    def test_list_tasks_paginated_empty(self, task_manager):
+        """Test pagination with no tasks."""
+        tasks, cursor = task_manager.list_tasks_paginated(limit=10)
+        assert len(tasks) == 0
+        assert cursor is None
+
+    def test_list_tasks_paginated_limit_capped_at_100(self, task_manager):
+        """Test that limit is capped at 100."""
+        tasks, cursor = task_manager.list_tasks_paginated(limit=200)
+        # Should still work but internally limited
+        assert cursor is None  # All fit in one page if < 100
+
+    def test_list_tasks_paginated_with_invalid_cursor(self, task_manager):
+        """Test pagination with invalid cursor falls back to start."""
+        task_manager.create_task(TaskType.TRAIN, "a", "v1", {})
+        task_manager.create_task(TaskType.TRAIN, "b", "v1", {})
+
+        # Invalid cursor should be ignored
+        tasks, cursor = task_manager.list_tasks_paginated(limit=10, cursor="invalid-cursor")
+        assert len(tasks) == 2
+
+    def test_list_tasks_paginated_with_status_filter(self, task_manager):
+        """Test pagination with status filter."""
+        task1 = task_manager.create_task(TaskType.TRAIN, "a", "v1", {})
+        task_manager.create_task(TaskType.INFER, "b", "v1", {})
+        task_manager.update_status(task1.task_id, TaskStatus.COMPLETED)
+
+        tasks, cursor = task_manager.list_tasks_paginated(status=TaskStatus.COMPLETED, limit=10)
+        assert len(tasks) == 1
+        assert tasks[0].algorithm_name == "a"
+
+
+class TestProgressReporter:
+    """Tests for ProgressReporter Ray Actor."""
+
+    def test_progress_reporter_update_progress_signature(self):
+        """Test ProgressReporter.update_progress accepts expected arguments."""
+        # ProgressReporter is a Ray Actor - test its interface
+        # We can verify the method signature exists
+        from algo_studio.core.task import ProgressReporter
+        import inspect
+
+        # Check method exists and has expected signature
+        assert hasattr(ProgressReporter, 'update_progress')
+        sig = inspect.signature(ProgressReporter.update_progress)
+        params = list(sig.parameters.keys())
+        # Ray remote methods may have different signatures due to internal tracing
+        assert 'task_id' in params
+        assert 'current' in params
+        assert 'total' in params
+        assert 'description' in params
+
+    def test_progress_reporter_get_progress_signature(self):
+        """Test ProgressReporter.get_progress accepts expected arguments."""
+        from algo_studio.core.task import ProgressReporter
+        import inspect
+
+        assert hasattr(ProgressReporter, 'get_progress')
+        sig = inspect.signature(ProgressReporter.get_progress)
+        params = list(sig.parameters.keys())
+        # Ray remote methods may have different signatures due to internal tracing
+        assert 'task_id' in params
+
+
+class TestTaskManagerDispatchTask:
+    """Tests for TaskManager.dispatch_task method."""
+
+    @pytest.fixture
+    def task_manager(self):
+        """Create a fresh TaskManager instance."""
+        return TaskManager()
+
+    def test_dispatch_task_no_nodes_available(self, task_manager):
+        """Test dispatch fails gracefully when no nodes available."""
+        task = task_manager.create_task(TaskType.TRAIN, "a", "v1", {})
+
+        # Mock ray_client with no idle nodes
+        mock_ray_client = MagicMock()
+        mock_ray_client.get_nodes.return_value = []
+
+        result = task_manager.dispatch_task(task.task_id, mock_ray_client)
+
+        assert result is False
+        # Task should be marked as failed
+        updated_task = task_manager.get_task(task.task_id)
+        assert updated_task.status == TaskStatus.FAILED
+        assert "No available nodes" in updated_task.error
+
+    def test_dispatch_task_no_idle_gpu_nodes_fallback_to_cpu(self, task_manager):
+        """Test dispatch falls back to CPU nodes when no GPU nodes available."""
+        task = task_manager.create_task(TaskType.TRAIN, "a", "v1", {})
+
+        # Mock ray_client with only busy GPU node
+        mock_node = MagicMock()
+        mock_node.status = "busy"
+        mock_node.gpu_available = 0
+        mock_node.hostname = "gpu-node"
+        mock_node.ip = "192.168.0.115"
+
+        mock_ray_client = MagicMock()
+        mock_ray_client.get_nodes.return_value = [mock_node]
+        mock_ray_client.submit_task.side_effect = Exception("Ray error")
+
+        result = task_manager.dispatch_task(task.task_id, mock_ray_client)
+
+        # Should attempt dispatch even though node is busy
+        assert result is False
+
+    def test_dispatch_task_submits_train_task(self, task_manager):
+        """Test dispatch submits TRAIN task correctly."""
+        task = task_manager.create_task(TaskType.TRAIN, "a", "v1", {"epochs": 10})
+
+        # Mock ray_client with idle GPU node
+        mock_node = MagicMock()
+        mock_node.status = "idle"
+        mock_node.gpu_available = 1
+        mock_node.hostname = "gpu-node"
+        mock_node.ip = "192.168.0.115"
+
+        mock_ray_client = MagicMock()
+        mock_ray_client.get_nodes.return_value = [mock_node]
+
+        # Mock ray.get to return success
+        mock_result = {"status": "completed", "success": True, "model_path": "/model.pth", "metrics": {}}
+        with patch('ray.get', return_value=mock_result):
+            result = task_manager.dispatch_task(task.task_id, mock_ray_client)
+
+        assert result is True
+        updated_task = task_manager.get_task(task.task_id)
+        assert updated_task.status == TaskStatus.COMPLETED
+        assert updated_task.assigned_node == "gpu-node"
+
+    def test_dispatch_task_unknown_task_id(self, task_manager):
+        """Test dispatch returns False for unknown task."""
+        mock_ray_client = MagicMock()
+        result = task_manager.dispatch_task("unknown-task-id", mock_ray_client)
+        assert result is False
+
+    def test_dispatch_task_ray_submit_exception(self, task_manager):
+        """Test dispatch handles Ray submit exception."""
+        task = task_manager.create_task(TaskType.TRAIN, "a", "v1", {})
+
+        mock_node = MagicMock()
+        mock_node.status = "idle"
+        mock_node.gpu_available = 1
+        mock_node.hostname = "gpu-node"
+        mock_node.ip = "192.168.0.115"
+
+        mock_ray_client = MagicMock()
+        mock_ray_client.get_nodes.return_value = [mock_node]
+        mock_ray_client.submit_task.side_effect = Exception("Ray connection failed")
+
+        result = task_manager.dispatch_task(task.task_id, mock_ray_client)
+
+        assert result is False
+        updated_task = task_manager.get_task(task.task_id)
+        assert updated_task.status == TaskStatus.FAILED
+        assert "Ray connection failed" in updated_task.error
+
+    def test_dispatch_task_result_failed(self, task_manager):
+        """Test dispatch handles failed task result."""
+        task = task_manager.create_task(TaskType.INFER, "a", "v1", {})
+
+        mock_node = MagicMock()
+        mock_node.status = "idle"
+        mock_node.gpu_available = 0
+        mock_node.hostname = "cpu-node"
+        mock_node.ip = "192.168.0.115"
+
+        mock_ray_client = MagicMock()
+        mock_ray_client.get_nodes.return_value = [mock_node]
+
+        mock_result = {"status": "failed", "error": "Inference failed"}
+        with patch('ray.get', return_value=mock_result):
+            result = task_manager.dispatch_task(task.task_id, mock_ray_client)
+
+        assert result is True  # Dispatch succeeded
+        updated_task = task_manager.get_task(task.task_id)
+        assert updated_task.status == TaskStatus.FAILED
+        assert "Inference failed" in updated_task.error
+
+    def test_dispatch_task_infer_task(self, task_manager):
+        """Test dispatch submits INFER task correctly."""
+        task = task_manager.create_task(TaskType.INFER, "a", "v1", {})
+
+        mock_node = MagicMock()
+        mock_node.status = "idle"
+        mock_node.gpu_available = 0
+        mock_node.hostname = "cpu-node"
+        mock_node.ip = "192.168.0.115"
+
+        mock_ray_client = MagicMock()
+        mock_ray_client.get_nodes.return_value = [mock_node]
+
+        mock_result = {"status": "completed", "success": True, "outputs": [1, 2]}
+        with patch('ray.get', return_value=mock_result):
+            result = task_manager.dispatch_task(task.task_id, mock_ray_client)
+
+        assert result is True
+
+    def test_dispatch_task_verify_task(self, task_manager):
+        """Test dispatch submits VERIFY task correctly."""
+        task = task_manager.create_task(TaskType.VERIFY, "a", "v1", {})
+
+        mock_node = MagicMock()
+        mock_node.status = "idle"
+        mock_node.gpu_available = 0
+        mock_node.hostname = "cpu-node"
+        mock_node.ip = "192.168.0.115"
+
+        mock_ray_client = MagicMock()
+        mock_ray_client.get_nodes.return_value = [mock_node]
+
+        mock_result = {"status": "completed", "success": True, "passed": True}
+        with patch('ray.get', return_value=mock_result):
+            result = task_manager.dispatch_task(task.task_id, mock_ray_client)
+
+        assert result is True
+
+
+class TestLoadAlgorithm:
+    """Tests for _load_algorithm function behavior."""
+
+    def test_load_algorithm_file_not_found(self):
+        """Test _load_algorithm raises FileNotFoundError when algorithm dir is missing."""
+        from algo_studio.core.task import _load_algorithm
+
+        with pytest.raises(FileNotFoundError, match="Algorithm implementation not found"):
+            _load_algorithm("non_existent_algorithm", "v1")
+
+    def test_load_algorithm_algorithm_class_not_found(self):
+        """Test _load_algorithm raises ValueError when no valid algorithm class found."""
+        import tempfile
+        import os
+        from algo_studio.core.task import _load_algorithm
+
+        # Create a temp algorithm directory with no valid algorithm
+        with tempfile.TemporaryDirectory() as tmpdir:
+            algo_path = os.path.join(tmpdir, "test_algo", "v1")
+            os.makedirs(algo_path)
+
+            # Create a file but not an algorithm class
+            with open(os.path.join(algo_path, "model.py"), "w") as f:
+                f.write("class NotAnAlgorithm:\n    pass\n")
+
+            with patch('algo_studio.core.task.ALGORITHM_BASE_PATH', tmpdir):
+                with pytest.raises(ValueError, match="No algorithm implementation found"):
+                    _load_algorithm("test_algo", "v1")

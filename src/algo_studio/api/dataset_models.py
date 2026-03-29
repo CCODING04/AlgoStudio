@@ -26,6 +26,7 @@ class DatasetUpdateRequest(BaseModel):
     extra_metadata: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
     is_public: Optional[bool] = None
+    owner_id: Optional[str] = Field(None, description="Owner user ID (admin only)")
 
 
 class DatasetResponse(BaseModel):

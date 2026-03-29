@@ -1,0 +1,29 @@
+# Grafana Notification Channels Configuration
+# Version: v1.0
+# Date: 2026-03-26
+
+notifiers:
+  - name: email-notifier
+    type: email
+    uid: email-notifier-001
+    is_default: true
+    send_reminder: true
+    frequency: 1h
+    settings:
+      addresses: algo-studio-team@example.com
+      singleEmail: false
+
+  - name: slack-notifier
+    type: slack
+    uid: slack-notifier-001
+    settings:
+      url: https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+      recipient: "#algo-studio-alerts"
+      username: "Grafana Alert Bot"
+
+  - name: webhook-notifier
+    type: webhook
+    uid: webhook-notifier-001
+    settings:
+      url: http://192.168.0.126:8000/api/alerts/webhook
+      httpMethod: POST

@@ -821,7 +821,8 @@ class TestDispatchAPIIntegration:
         # Step 3: Dispatch task
         with patch("algo_studio.core.task.ray") as mock_ray, \
              patch("algo_studio.api.routes.tasks.get_ray_client") as mock_get_ray_client, \
-             patch("algo_studio.core.task.get_progress_store") as mock_progress_store:
+             patch("algo_studio.core.task.get_progress_store") as mock_progress_store, \
+             patch("algo_studio.core.task.TaskManager.dispatch_task") as mock_dispatch_task:
             mock_ray.nodes.return_value = []
             mock_ray.get.return_value = None
             mock_ray_client = MagicMock()
@@ -830,6 +831,8 @@ class TestDispatchAPIIntegration:
             mock_store = MagicMock()
             mock_store.get.remote.return_value = 0
             mock_progress_store.return_value = mock_store
+            # Mock dispatch_task to prevent actual algorithm loading
+            mock_dispatch_task.return_value = None
 
             dispatch_response = await client.post(
                 f"/api/tasks/{task_id}/dispatch",
