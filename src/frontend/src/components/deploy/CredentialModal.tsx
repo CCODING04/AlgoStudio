@@ -65,7 +65,7 @@ export function CredentialModal({ open, onClose, onSave }: CredentialModalProps)
 
   return (
     <Dialog open={open} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-[400px]">
+      <DialogContent className="sm:max-w-[400px]" data-testid="credential-modal">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <KeyRound className="h-5 w-5" />
@@ -78,6 +78,8 @@ export function CredentialModal({ open, onClose, onSave }: CredentialModalProps)
             <Label htmlFor="username">用户名</Label>
             <Input
               id="username"
+              data-testid="credential-username"
+              name="username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -90,6 +92,8 @@ export function CredentialModal({ open, onClose, onSave }: CredentialModalProps)
             <Label htmlFor="password">SSH 密码</Label>
             <Input
               id="password"
+              data-testid="credential-password"
+              name="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -99,14 +103,14 @@ export function CredentialModal({ open, onClose, onSave }: CredentialModalProps)
           </div>
 
           {error && (
-            <p className="text-sm text-destructive">{error}</p>
+            <p className="text-sm text-destructive" data-testid="credential-error">{error}</p>
           )}
 
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={loading} data-testid="credential-cancel">
               取消
             </Button>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading} data-testid="credential-save">
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
               保存凭据
             </Button>

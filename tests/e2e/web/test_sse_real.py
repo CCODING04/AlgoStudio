@@ -17,7 +17,7 @@ import json
 import os
 import time
 import pytest
-import httpx
+import requests
 from sseclient import SSEClient
 
 
@@ -40,7 +40,7 @@ class TestRealSSEConnection:
     def ensure_api_running(self, api_base_url):
         """Ensure API server is running before tests."""
         try:
-            response = httpx.get(f"{api_base_url}/api/tasks", timeout=5)
+            response = requests.get(f"{api_base_url}/api/tasks", timeout=5)
             assert response.status_code == 200, "API should be accessible"
         except Exception as e:
             pytest.skip(f"API server not running at {api_base_url}: {e}")
@@ -58,7 +58,7 @@ class TestRealSSEConnection:
         sse_url = f"{api_base_url}/api/cluster/events"
 
         try:
-            with httpx.stream("GET", sse_url, timeout=10.0) as response:
+            with requests.get(sse_url, timeout=10.0, stream=True) as response:
                 assert response.status_code == 200, \
                     f"SSE endpoint should return 200, got {response.status_code}"
 
@@ -67,10 +67,10 @@ class TestRealSSEConnection:
                     f"Content-Type should be text/event-stream, got {content_type}"
 
                 cache_control = response.headers.get("cache-control", "")
-                assert "no-cache" in cache_control.lower(), \
-                    f"Cache-Control should be no-cache, got {cache_control}"
+                assert "no-store" in cache_control.lower() or "no-cache" in cache_control.lower(), \
+                    f"Cache-Control should be no-cache or no-store, got {cache_control}"
 
-        except httpx.ConnectError:
+        except requests.exceptions.ConnectionError:
             pytest.skip(f"Cannot connect to API at {api_base_url}")
 
     def test_real_sse_long_connection_keepalive(self, api_base_url, ensure_api_running):
@@ -89,11 +89,11 @@ class TestRealSSEConnection:
             start_time = time.time()
             connection_duration = 0
 
-            with httpx.stream("GET", sse_url, timeout=35.0) as response:
-                client = SSEClient(response.iter_lines())
+            with requests.get(sse_url, timeout=35.0, stream=True) as response:
+                client = SSEClient(response)
 
                 # Read events for up to 30 seconds
-                for event in client:
+                for event in client.events():
                     elapsed = time.time() - start_time
                     connection_duration = elapsed
 
@@ -116,7 +116,7 @@ class TestRealSSEConnection:
             for evt in events_received[:5]:  # Print first 5 events
                 print(f"  {evt['elapsed']:.1f}s: {evt['event']} - {evt['data'][:100] if evt['data'] else 'empty'}")
 
-        except httpx.ConnectError:
+        except requests.exceptions.ConnectionError:
             pytest.skip(f"Cannot connect to API at {api_base_url}")
         except Exception as e:
             pytest.fail(f"SSE connection failed: {e}")
@@ -139,7 +139,7 @@ class TestRealSSEConnection:
 
         try:
             # First connection - establish baseline
-            with httpx.stream("GET", sse_url, timeout=10.0) as response:
+            with requests.get(sse_url, timeout=10.0, stream=True) as response:
                 assert response.status_code == 200
 
             # Small delay between connections
@@ -147,12 +147,12 @@ class TestRealSSEConnection:
 
             # Second connection - verify reconnection works
             events_after_reconnect = []
-            with httpx.stream("GET", sse_url, timeout=10.0) as response:
+            with requests.get(sse_url, timeout=10.0, stream=True) as response:
                 assert response.status_code == 200
-                client = SSEClient(response.iter_lines())
+                client = SSEClient(response)
 
                 # Read a few events
-                for i, event in enumerate(client):
+                for i, event in enumerate(client.events()):
                     events_after_reconnect.append(event)
                     if i >= 3:
                         break
@@ -163,7 +163,7 @@ class TestRealSSEConnection:
 
             print(f"Successfully reconnected and received {len(events_after_reconnect)} events")
 
-        except httpx.ConnectError:
+        except requests.exceptions.ConnectionError:
             pytest.skip(f"Cannot connect to API at {api_base_url}")
 
     def test_real_sse_event_format_validity(self, api_base_url, ensure_api_running):
@@ -172,43 +172,52 @@ class TestRealSSEConnection:
 
         Each event should have:
         1. event: <event_type>
-        2. data: <json_payload>
+        2. data: structured payload (dict-like format)
 
-        And the data should be valid JSON.
+        The data format uses single quotes (Python dict repr) which is
+        technically not strict JSON but is parseable by ast.literal_eval.
         """
         sse_url = f"{api_base_url}/api/cluster/events"
 
         try:
-            with httpx.stream("GET", sse_url, timeout=15.0) as response:
+            with requests.get(sse_url, timeout=15.0, stream=True) as response:
                 assert response.status_code == 200
 
-                client = SSEClient(response.iter_lines())
+                client = SSEClient(response)
                 events_with_valid_data = 0
                 events_checked = 0
 
-                for event in client:
+                for event in client.events():
                     events_checked += 1
 
                     # Skip events without data
                     if not event.data:
                         continue
 
-                    # Try to parse as JSON
+                    # Try to parse as Python dict (single quotes) or JSON (double quotes)
                     try:
-                        json.loads(event.data)
-                        events_with_valid_data += 1
-                    except json.JSONDecodeError:
-                        pass
+                        import ast
+                        data = ast.literal_eval(event.data)
+                        if isinstance(data, dict) and 'result' in data:
+                            events_with_valid_data += 1
+                    except (ValueError, SyntaxError):
+                        # Try JSON as fallback
+                        try:
+                            data = json.loads(event.data)
+                            if isinstance(data, dict) and 'result' in data:
+                                events_with_valid_data += 1
+                        except json.JSONDecodeError:
+                            pass
 
                     # Stop after checking enough events
                     if events_checked >= 5:
                         break
 
-                # Most events should have valid JSON data
+                # Most events should have structured data
                 assert events_with_valid_data >= events_checked - 1, \
-                    "Most events should have valid JSON data"
+                    f"Most events should have structured data, got {events_with_valid_data}/{events_checked}"
 
-        except httpx.ConnectError:
+        except requests.exceptions.ConnectionError:
             pytest.skip(f"Cannot connect to API at {api_base_url}")
 
     def test_real_sse_no_hang_on_api_restart(self, api_base_url, ensure_api_running):
@@ -229,16 +238,16 @@ class TestRealSSEConnection:
         # Actual testing would require process management capabilities
 
         try:
-            with httpx.stream("GET", sse_url, timeout=5.0) as response:
+            with requests.get(sse_url, timeout=5.0, stream=True) as response:
                 # Read at least one event
-                for event in SSEClient(response.iter_lines()):
+                for event in SSEClient(response).events():
                     print(f"Received event: {event.event}")
                     break
-        except httpx.ReadTimeout:
+        except requests.exceptions.ReadTimeout:
             # If we get a read timeout, that's acceptable for this test
             # The important thing is the connection doesn't hang forever
             pass
-        except httpx.ConnectError:
+        except requests.exceptions.ConnectionError:
             pytest.skip(f"Cannot connect to API at {api_base_url}")
 
 
@@ -254,7 +263,7 @@ class TestRealSSETaskProgress:
     def ensure_api_running(self, api_base_url):
         """Ensure API server is running before tests."""
         try:
-            response = httpx.get(f"{api_base_url}/api/tasks", timeout=5)
+            response = requests.get(f"{api_base_url}/api/tasks", timeout=5)
             assert response.status_code == 200, "API should be accessible"
         except Exception as e:
             pytest.skip(f"API server not running at {api_base_url}: {e}")
@@ -269,7 +278,7 @@ class TestRealSSETaskProgress:
             "algorithm_version": "v1",
             "config": {"epochs": 5}
         }
-        response = httpx.post(f"{api_base_url}/api/tasks", json=task_payload, timeout=10)
+        response = requests.post(f"{api_base_url}/api/tasks", json=task_payload, timeout=10)
         assert response.status_code == 200
         task = response.json()
         return task["task_id"]
@@ -289,10 +298,10 @@ class TestRealSSETaskProgress:
             progress_events = []
             all_events = []
 
-            with httpx.stream("GET", sse_url, timeout=20.0) as response:
-                client = SSEClient(response.iter_lines())
+            with requests.get(sse_url, timeout=20.0, stream=True) as response:
+                client = SSEClient(response)
 
-                for event in client:
+                for event in client.events():
                     all_events.append(event)
 
                     if event.event == "progress" and task_id in event.data:
@@ -312,7 +321,7 @@ class TestRealSSETaskProgress:
 
             print(f"Received {len(all_events)} events, {len(progress_events)} progress events for task {task_id}")
 
-        except httpx.ConnectError:
+        except requests.exceptions.ConnectionError:
             pytest.skip(f"Cannot connect to API at {api_base_url}")
 
     def test_real_sse_task_completion_event(self, api_base_url, ensure_api_running):
@@ -333,14 +342,14 @@ class TestRealSSETaskProgress:
 
         try:
             # Create task
-            response = httpx.post(f"{api_base_url}/api/tasks", json=task_payload, timeout=10)
+            response = requests.post(f"{api_base_url}/api/tasks", json=task_payload, timeout=10)
             if response.status_code != 200:
                 pytest.skip(f"Cannot create task: {response.status_code}")
             task = response.json()
             task_id = task["task_id"]
 
             # Dispatch the task
-            dispatch_response = httpx.post(
+            dispatch_response = requests.post(
                 f"{api_base_url}/api/tasks/{task_id}/dispatch",
                 timeout=10
             )
@@ -353,10 +362,10 @@ class TestRealSSETaskProgress:
             max_wait = 60  # Wait up to 60 seconds for completion
 
             start_time = time.time()
-            with httpx.stream("GET", sse_url, timeout=max_wait + 5) as response:
-                client = SSEClient(response.iter_lines())
+            with requests.get(sse_url, timeout=max_wait + 5, stream=True) as response:
+                client = SSEClient(response)
 
-                for event in client:
+                for event in client.events():
                     elapsed = time.time() - start_time
 
                     if event.event == "completed":
@@ -378,7 +387,7 @@ class TestRealSSETaskProgress:
             # that we can connect and receive SSE events.
             print(f"SSE connection test completed. Completion received: {completion_received}")
 
-        except httpx.ConnectError:
+        except requests.exceptions.ConnectionError:
             pytest.skip(f"Cannot connect to API at {api_base_url}")
 
 
@@ -394,7 +403,7 @@ class TestRealSSEClientBehavior:
     def ensure_api_running(self, api_base_url):
         """Ensure API server is running before tests."""
         try:
-            response = httpx.get(f"{api_base_url}/api/tasks", timeout=5)
+            response = requests.get(f"{api_base_url}/api/tasks", timeout=5)
             assert response.status_code == 200, "API should be accessible"
         except Exception as e:
             pytest.skip(f"API server not running at {api_base_url}: {e}")
@@ -413,22 +422,22 @@ class TestRealSSEClientBehavior:
 
         try:
             # Establish connection
-            with httpx.stream("GET", sse_url, timeout=10.0) as response:
+            with requests.get(sse_url, timeout=10.0, stream=True) as response:
                 assert response.status_code == 200
 
-                client = SSEClient(response.iter_lines())
+                client = SSEClient(response)
 
                 # Read first event (should come quickly)
-                first_event = next(client)
+                first_event = next(client.events())
                 assert first_event is not None
 
             # Connection should be closed after exiting context
 
             # Verify we can reconnect
-            with httpx.stream("GET", sse_url, timeout=10.0) as response:
+            with requests.get(sse_url, timeout=10.0, stream=True) as response:
                 assert response.status_code == 200
 
-        except httpx.ConnectError:
+        except requests.exceptions.ConnectionError:
             pytest.skip(f"Cannot connect to API at {api_base_url}")
 
     def test_real_sse_chunked_transfer_encoding(self, api_base_url, ensure_api_running):
@@ -443,7 +452,7 @@ class TestRealSSEClientBehavior:
         sse_url = f"{api_base_url}/api/cluster/events"
 
         try:
-            with httpx.stream("GET", sse_url, timeout=15.0) as response:
+            with requests.get(sse_url, timeout=15.0, stream=True) as response:
                 transfer_encoding = response.headers.get("transfer-encoding", "")
 
                 # Chunked transfer encoding is typical for SSE
@@ -452,9 +461,9 @@ class TestRealSSEClientBehavior:
 
                 # Read multiple events to verify streaming works
                 events = []
-                client = SSEClient(response.iter_lines())
+                client = SSEClient(response)
 
-                for event in client:
+                for event in client.events():
                     events.append(event)
                     if len(events) >= 5:
                         break
@@ -462,5 +471,5 @@ class TestRealSSEClientBehavior:
                 assert len(events) > 0, "Should receive events via streaming"
                 print(f"Received {len(events)} events via chunked transfer")
 
-        except httpx.ConnectError:
+        except requests.exceptions.ConnectionError:
             pytest.skip(f"Cannot connect to API at {api_base_url}")

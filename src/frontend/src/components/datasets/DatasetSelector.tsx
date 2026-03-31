@@ -181,7 +181,7 @@ export function DatasetSelector({
                                 {dataset.path}
                               </p>
                               <div className="flex gap-2 mt-1">
-                                {dataset.size_gb !== null && (
+                                {dataset.size_gb != null && (
                                   <span className="text-xs text-muted-foreground">
                                     {dataset.size_gb.toFixed(2)} GB
                                   </span>

@@ -53,7 +53,7 @@ export interface HostResource {
 export interface HostInfo {
   node_id: string;
   ip: string;
-  status: 'online' | 'offline';
+  status: 'online' | 'offline' | 'idle' | 'busy';
   is_local: boolean;
   hostname: string;
   role?: 'head' | 'worker';

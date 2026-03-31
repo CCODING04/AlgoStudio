@@ -115,8 +115,11 @@ export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
     setDispatchStatus('pending');
   };
 
-  const handleClose = (isOpen: boolean) => {
-    if (!isOpen) {
+  const handleClose = (isOpen: any) => {
+    // When called from Dialog onOpenChange, isOpen is boolean
+    // When called from Button onClick, isOpen is MouseEvent (treat as close)
+    const shouldClose = typeof isOpen === 'boolean' ? !isOpen : true;
+    if (shouldClose) {
       handleReset();
       onOpenChange(false);
     }

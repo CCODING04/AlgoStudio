@@ -2,7 +2,6 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { useTask } from '@/hooks/use-tasks';
 import { useTaskSSE } from '@/hooks/use-sse';
 import { Progress } from '@/components/ui/progress';
@@ -16,8 +15,8 @@ import {
   XCircle,
   Loader2,
 } from 'lucide-react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import { cn } from '@/lib/utils';
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'success'; icon: typeof CheckCircle }> = {
   pending: { label: '待处理', variant: 'secondary', icon: Clock },
@@ -35,6 +34,7 @@ const taskTypeLabels: Record<string, string> = {
 
 export default function TaskDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const taskId = params.taskId as string;
   const { data: task, isLoading, error } = useTask(taskId);
 
@@ -44,11 +44,12 @@ export default function TaskDetailPage() {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link href="/tasks">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
+          <button
+            onClick={() => router.push('/tasks')}
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-10 w-10"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
           <h1 className="text-3xl font-bold">任务详情</h1>
         </div>
         <Card>
@@ -64,11 +65,12 @@ export default function TaskDetailPage() {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link href="/tasks">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
+          <button
+            onClick={() => router.push('/tasks')}
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-10 w-10"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
           <h1 className="text-3xl font-bold">任务详情</h1>
         </div>
         <Card>
@@ -87,11 +89,12 @@ export default function TaskDetailPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href="/tasks">
+        <button
+            onClick={() => router.push('/tasks')}
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-10 w-10"
+          >
             <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
+          </button>
         <div className="flex-1">
           <h1 className="text-3xl font-bold">任务详情</h1>
           <p className="text-muted-foreground font-mono text-sm">{task.task_id}</p>

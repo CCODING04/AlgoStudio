@@ -63,8 +63,65 @@ def context(browser):
 def page(context):
     """Provide a new page for each test."""
     page = context.new_page()
+
+    # Set mock credentials before any navigation using add_init_script
+    # This runs before any JavaScript on the page
+    context.add_init_script("""
+        // Override getStoredCredentials before the page loads
+        // This prevents the credential modal from appearing
+        Object.defineProperty(window, 'getStoredCredentials', {
+            value: function() {
+                return {
+                    username: 'admin02',
+                    password: 'test-password',
+                    credentialId: 'test-credential-id'
+                };
+            },
+            writable: false,
+            configurable: true
+        });
+    """)
+
     yield page
     page.close()
+
+
+def _dismiss_modal(page):
+    """Helper to dismiss credential modal if present."""
+    import time
+    start_time = time.time()
+    while time.time() - start_time < 3:
+        try:
+            modal = page.locator('[data-testid="credential-modal"]')
+            if modal.count() > 0 and modal.is_visible():
+                # Modal is visible, dismiss it - try pressing Escape first
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(1000)
+                # Check if modal is gone
+                modal = page.locator('[data-testid="credential-modal"]')
+                if modal.count() == 0 or not modal.is_visible():
+                    return
+                # Try clicking the cancel button directly
+                try:
+                    page.locator('[data-testid="credential-cancel"]').click(force=True, timeout=2000)
+                    page.wait_for_timeout(500)
+                    return
+                except Exception:
+                    pass
+                # Try filling in credentials and saving
+                try:
+                    page.fill('[data-testid="credential-username"]', 'admin02', timeout=2000)
+                    page.fill('[data-testid="credential-password"]', 'test-password', timeout=2000)
+                    page.locator('[data-testid="credential-save"]').click(force=True, timeout=2000)
+                    page.wait_for_timeout(500)
+                    return
+                except Exception:
+                    pass
+                page.wait_for_timeout(500)
+            else:
+                page.wait_for_timeout(500)
+        except Exception:
+            page.wait_for_timeout(500)
 
 
 @pytest.fixture(scope="session")

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { headers } from 'next/headers';
 
 const API_KEY = process.env.API_KEY || process.env.NEXT_PUBLIC_API_KEY || '';
 const API_BASE = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
@@ -6,10 +7,15 @@ const API_BASE = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_UR
 export async function GET() {
   try {
     const url = `${API_BASE}/api/hosts`;
+    const requestHeaders = headers();
+
     const res = await fetch(url, {
       headers: {
         'X-API-Key': API_KEY,
         'Content-Type': 'application/json',
+        // Forward user authentication headers from the browser request
+        'X-User-ID': requestHeaders.get('X-User-ID') || 'test-user',
+        'X-User-Role': requestHeaders.get('X-User-Role') || 'admin',
       },
       // Follow redirects manually to ensure proper response handling
       redirect: 'follow',

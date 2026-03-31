@@ -40,7 +40,7 @@ export interface HostResource {
 export interface HostInfo {
   node_id: string;
   ip: string;
-  status: 'online' | 'offline';
+  status: 'online' | 'offline' | 'idle' | 'busy';
   is_local: boolean;
   hostname: string;
   resources: HostResource;
@@ -63,6 +63,8 @@ export function HostCard({ host }: HostCardProps) {
   const statusConfig = {
     online: { label: '在线', variant: 'success' as const },
     offline: { label: '离线', variant: 'secondary' as const },
+    idle: { label: '空闲', variant: 'success' as const },
+    busy: { label: '忙碌', variant: 'warning' as const },
   };
 
   const status = statusConfig[host.status] || statusConfig.offline;

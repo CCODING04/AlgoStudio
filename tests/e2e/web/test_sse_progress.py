@@ -276,8 +276,11 @@ class TestSSEMock:
         server = SSEMockServer(port=8899)
         server.start()
 
+        # Wait for server to be ready
         import httpx
-        response = httpx.get(f"{server.url}/api/tasks")
+        time.sleep(0.5)
+
+        response = httpx.get(f"{server.url}/api/tasks", timeout=10.0)
         assert response.status_code == 200
 
         server.stop()

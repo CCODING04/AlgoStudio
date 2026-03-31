@@ -306,8 +306,8 @@ class TestDatasetPagination:
         page.goto("/datasets")
         page.wait_for_load_state("networkidle")
 
-        # Actual UI has a refresh button with RefreshCw icon
-        refresh_button = page.locator("button svg.lucide-refresh, button:has(svg.lucide-refresh)")
+        # Actual UI has a refresh button with RefreshCw icon (lucide-refresh-cw)
+        refresh_button = page.locator("button svg.lucide-refresh-cw, button:has(svg.lucide-refresh-cw)")
         assert refresh_button.count() > 0, "Refresh button should exist"
 
 

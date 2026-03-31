@@ -24,7 +24,7 @@ interface Algorithm {
 interface Host {
   node_id: string;
   ip: string;
-  status: 'online' | 'offline';
+  status: 'online' | 'offline' | 'idle' | 'busy';
   is_local: boolean;
   hostname: string;
   resources: {
@@ -159,6 +159,7 @@ export function DeployWizard({ hosts, algorithms, onDeploy }: DeployWizardProps)
                   <Select
                     value={selectedAlgorithmVersion || ''}
                     onValueChange={setSelectedAlgorithmVersion}
+                    data-testid="deploy-version-select"
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="选择版本" />

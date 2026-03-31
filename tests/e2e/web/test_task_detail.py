@@ -47,7 +47,7 @@ class TestTaskDetailPage:
             )
 
         tasks = response.json()
-        task_list = tasks if isinstance(tasks, list) else []
+        task_list = tasks.get("items", []) if isinstance(tasks, dict) else tasks
 
         if not task_list:
             pytest.skip("No tasks available for detail test")
@@ -81,7 +81,7 @@ class TestTaskDetailPage:
             )
 
         tasks = response.json()
-        task_list = tasks if isinstance(tasks, list) else []
+        task_list = tasks.get("items", []) if isinstance(tasks, dict) else tasks
 
         if not task_list:
             pytest.skip("No tasks available for detail test")
@@ -116,7 +116,7 @@ class TestTaskDetailPage:
             )
 
         tasks = response.json()
-        task_list = tasks if isinstance(tasks, list) else []
+        task_list = tasks.get("items", []) if isinstance(tasks, dict) else tasks
 
         if not task_list:
             pytest.skip("No tasks available for detail test")
@@ -158,7 +158,7 @@ class TestTaskDetailPage:
             )
 
         tasks = response.json()
-        task_list = tasks if isinstance(tasks, list) else []
+        task_list = tasks.get("items", []) if isinstance(tasks, dict) else tasks
 
         if not task_list:
             pytest.skip("No tasks available for detail test")
@@ -202,7 +202,7 @@ class TestTaskDetailPage:
             )
 
         tasks = response.json()
-        task_list = tasks if isinstance(tasks, list) else []
+        task_list = tasks.get("items", []) if isinstance(tasks, dict) else tasks
 
         if not task_list:
             pytest.skip("No tasks available for detail test")
@@ -241,7 +241,7 @@ class TestTaskDetailPage:
             )
 
         tasks = response.json()
-        task_list = tasks if isinstance(tasks, list) else []
+        task_list = tasks.get("items", []) if isinstance(tasks, dict) else tasks
 
         if not task_list:
             pytest.skip("No tasks available for detail test")
@@ -260,9 +260,9 @@ class TestTaskDetailPage:
             back_button.click()
             page.wait_for_load_state("networkidle")
 
-            # Verify we're back on tasks page
+            # Verify we're back on tasks list page (not task detail page)
             current_url = page.url
-            assert "/tasks" in current_url and "/tasks/" not in current_url, (
+            assert current_url == 'http://localhost:3000/tasks' or current_url.startswith('http://localhost:3000/tasks?'), (
                 f"Should navigate back to tasks list, got: {current_url}"
             )
 
@@ -297,7 +297,7 @@ class TestTaskDetailProgress:
             )
 
         tasks = response.json()
-        task_list = tasks if isinstance(tasks, list) else []
+        task_list = tasks.get("items", []) if isinstance(tasks, dict) else tasks
 
         if not task_list:
             pytest.skip("No running tasks available for progress test")
@@ -336,7 +336,7 @@ class TestTaskDetailProgress:
             )
 
         tasks = response.json()
-        task_list = tasks if isinstance(tasks, list) else []
+        task_list = tasks.get("items", []) if isinstance(tasks, dict) else tasks
 
         if not task_list:
             pytest.skip("No running tasks available for progress test")
@@ -375,7 +375,7 @@ class TestTaskDetailProgress:
             )
 
         tasks = response.json()
-        task_list = tasks if isinstance(tasks, list) else []
+        task_list = tasks.get("items", []) if isinstance(tasks, dict) else tasks
 
         if not task_list:
             pytest.skip("No completed tasks available")
@@ -419,7 +419,7 @@ class TestTaskDetailErrorDisplay:
             )
 
         tasks = response.json()
-        task_list = tasks if isinstance(tasks, list) else []
+        task_list = tasks.get("items", []) if isinstance(tasks, dict) else tasks
 
         if not task_list:
             pytest.skip("No failed tasks available for error display test")
@@ -453,7 +453,7 @@ class TestTaskDetailErrorDisplay:
             )
 
         tasks = response.json()
-        task_list = tasks if isinstance(tasks, list) else []
+        task_list = tasks.get("items", []) if isinstance(tasks, dict) else tasks
 
         if not task_list:
             pytest.skip("No tasks available for timestamp test")
@@ -515,7 +515,7 @@ class TestTaskDetailEdgeCases:
             )
 
         tasks = response.json()
-        task_list = tasks if isinstance(tasks, list) else []
+        task_list = tasks.get("items", []) if isinstance(tasks, dict) else tasks
 
         if not task_list:
             pytest.skip("No tasks available for console error test")
