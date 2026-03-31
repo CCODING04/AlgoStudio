@@ -24,22 +24,8 @@ import { useTasks } from '@/hooks/use-tasks';
 import { TaskWizard } from '@/components/tasks/TaskWizard';
 import { Plus, Search, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
-
-const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'success' }> = {
-  pending: { label: '待处理', variant: 'secondary' },
-  running: { label: '运行中', variant: 'default' },
-  completed: { label: '已完成', variant: 'success' },
-  failed: { label: '失败', variant: 'destructive' },
-  cancelled: { label: '已取消', variant: 'destructive' },
-};
-
-const taskTypeLabels: Record<string, string> = {
-  train: '训练',
-  infer: '推理',
-  verify: '验证',
-};
-
-const PAGE_SIZE = 10;
+import { getStatusConfig, getTaskTypeLabel } from '@/lib/constants';
+import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
 
 export default function TasksPage() {
   const [page, setPage] = useState(1);
@@ -58,8 +44,8 @@ export default function TasksPage() {
     );
   }) || [];
 
-  const totalPages = Math.ceil(filteredTasks.length / PAGE_SIZE);
-  const paginatedTasks = filteredTasks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.ceil(filteredTasks.length / DEFAULT_PAGE_SIZE);
+  const paginatedTasks = filteredTasks.slice((page - 1) * DEFAULT_PAGE_SIZE, page * DEFAULT_PAGE_SIZE);
 
   return (
     <div className="space-y-6">
@@ -152,7 +138,7 @@ export default function TasksPage() {
                 </TableRow>
               ) : (
                 paginatedTasks.map((task) => {
-                  const status = statusConfig[task.status] || statusConfig.pending;
+                  const status = getStatusConfig(task.status);
                   return (
                     <TableRow key={task.task_id} className="cursor-pointer hover:bg-muted/50">
                       <TableCell>
@@ -163,7 +149,7 @@ export default function TasksPage() {
                           {task.task_id}
                         </Link>
                       </TableCell>
-                      <TableCell>{taskTypeLabels[task.task_type] || task.task_type}</TableCell>
+                      <TableCell>{getTaskTypeLabel(task.task_type)}</TableCell>
                       <TableCell>
                         <div>
                           <div>{task.algorithm_name}</div>

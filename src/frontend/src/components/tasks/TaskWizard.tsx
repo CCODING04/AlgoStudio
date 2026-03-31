@@ -207,6 +207,51 @@ export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
           </DialogDescription>
         </DialogHeader>
 
+        {/* Step Indicator */}
+        {step < 4 && (
+          <div className="px-2 py-3">
+            <div className="flex items-center justify-between">
+              {[
+                { num: 1, label: '选择算法' },
+                { num: 2, label: '配置参数' },
+                { num: 3, label: '选择节点' },
+              ].map(({ num, label }) => (
+                <div key={num} className="flex items-center">
+                  <div className="flex flex-col items-center">
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all duration-200 ${
+                        step >= num
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted text-muted-foreground'
+                      }`}
+                    >
+                      {step > num ? (
+                        <CheckCircle2 className="h-4 w-4" />
+                      ) : (
+                        num
+                      )}
+                    </div>
+                    <span
+                      className={`text-xs mt-1.5 ${
+                        step >= num ? 'text-foreground font-medium' : 'text-muted-foreground'
+                      }`}
+                    >
+                      {label}
+                    </span>
+                  </div>
+                  {num < 3 && (
+                    <div
+                      className={`w-16 h-0.5 mx-2 mb-6 transition-all duration-200 ${
+                        step > num ? 'bg-primary' : 'bg-muted'
+                      }`}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {step === 1 && (
           <div className="space-y-6 py-4">
             {/* Task Type */}
@@ -446,19 +491,27 @@ export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
         )}
 
         {step === 4 && createdTaskId && (
-          <div className="py-8">
-            <div className="flex flex-col items-center gap-4">
+          <div className="py-6 space-y-4">
+            <div className="flex flex-col items-center gap-3">
               {dispatchStatus === 'running' ? (
-                <CheckCircle2 className="h-16 w-16 text-green-500" />
+                <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
+                  <CheckCircle2 className="h-10 w-10 text-green-600" />
+                </div>
               ) : dispatchStatus === 'dispatching' ? (
-                <Loader2 className="h-16 w-16 text-blue-500 animate-spin" />
+                <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center">
+                  <Loader2 className="h-10 w-10 text-blue-600 animate-spin" />
+                </div>
               ) : dispatchStatus === 'failed' ? (
-                <AlertCircle className="h-16 w-16 text-yellow-500" />
+                <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center">
+                  <AlertCircle className="h-10 w-10 text-amber-600" />
+                </div>
               ) : (
-                <CheckCircle2 className="h-16 w-16 text-green-500" />
+                <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
+                  <CheckCircle2 className="h-10 w-10 text-green-600" />
+                </div>
               )}
-              <div className="text-center">
-                <p className="text-lg font-medium">
+              <div className="text-center space-y-1">
+                <p className="text-lg font-semibold">
                   {dispatchStatus === 'running'
                     ? '任务已启动'
                     : dispatchStatus === 'dispatching'
@@ -467,11 +520,11 @@ export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
                     ? '任务创建成功但启动失败'
                     : '任务创建成功'}
                 </p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  任务 ID: {createdTaskId}
+                <p className="text-xs text-muted-foreground font-mono bg-muted px-2 py-1 rounded">
+                  {createdTaskId}
                 </p>
               </div>
-              <p className="text-sm text-muted-foreground text-center">
+              <p className="text-sm text-muted-foreground text-center max-w-xs">
                 {dispatchStatus === 'running'
                   ? '任务已开始执行，请查看任务列表监控进度'
                   : dispatchStatus === 'dispatching'
@@ -532,7 +585,24 @@ export function TaskWizard({ open, onOpenChange, onSuccess }: TaskWizardProps) {
           )}
 
           {step === 4 && (
-            <Button onClick={handleClose}>完成</Button>
+            <div className="flex gap-2 w-full justify-end">
+              <Button variant="outline" onClick={handleClose}>
+                关闭
+              </Button>
+              {(dispatchStatus === 'running' || dispatchStatus === 'pending') && createdTaskId && (
+                <Button
+                  variant="default"
+                  onClick={() => {
+                    if (onSuccess) {
+                      onSuccess(createdTaskId);
+                    }
+                    handleClose(true);
+                  }}
+                >
+                  查看任务
+                </Button>
+              )}
+            </div>
           )}
         </DialogFooter>
       </DialogContent>

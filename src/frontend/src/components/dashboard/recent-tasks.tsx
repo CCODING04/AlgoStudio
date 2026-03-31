@@ -6,20 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useTasks } from '@/hooks/use-tasks';
 import { ListTodo, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
-
-const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'success' }> = {
-  pending: { label: '待处理', variant: 'secondary' },
-  running: { label: '运行中', variant: 'default' },
-  completed: { label: '已完成', variant: 'success' },
-  failed: { label: '失败', variant: 'destructive' },
-  cancelled: { label: '已取消', variant: 'destructive' },
-};
-
-const taskTypeLabels: Record<string, string> = {
-  train: '训练',
-  infer: '推理',
-  verify: '验证',
-};
+import { getStatusConfig, getTaskTypeLabel } from '@/lib/constants';
 
 export function RecentTasks() {
   const { data: tasks, isLoading } = useTasks();
@@ -74,7 +61,7 @@ export function RecentTasks() {
       <CardContent>
         <div className="space-y-3">
           {recentTasks.map((task) => {
-            const status = statusConfig[task.status] || statusConfig.pending;
+            const status = getStatusConfig(task.status);
             return (
               <Link
                 key={task.task_id}
@@ -84,7 +71,7 @@ export function RecentTasks() {
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-sm">
-                      {taskTypeLabels[task.task_type] || task.task_type}
+                      {getTaskTypeLabel(task.task_type)}
                     </span>
                     <Badge variant={status.variant} className="text-xs">
                       {status.label}

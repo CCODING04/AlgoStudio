@@ -1,7 +1,9 @@
 'use client';
 
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { useTask } from '@/hooks/use-tasks';
 import { useTaskSSE } from '@/hooks/use-sse';
 import { Progress } from '@/components/ui/progress';
@@ -9,47 +11,86 @@ import {
   ArrowLeft,
   Clock,
   Server,
-  Cpu,
   AlertCircle,
   CheckCircle,
   XCircle,
   Loader2,
+  Wifi,
 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
+import { getStatusConfig, getTaskTypeLabel } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 
-const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'success'; icon: typeof CheckCircle }> = {
-  pending: { label: '待处理', variant: 'secondary', icon: Clock },
-  running: { label: '运行中', variant: 'default', icon: Loader2 },
-  completed: { label: '已完成', variant: 'success', icon: CheckCircle },
-  failed: { label: '失败', variant: 'destructive', icon: XCircle },
-  cancelled: { label: '已取消', variant: 'destructive', icon: XCircle },
+const statusIconMap: Record<string, typeof CheckCircle> = {
+  pending: Clock,
+  running: Loader2,
+  completed: CheckCircle,
+  failed: XCircle,
+  cancelled: XCircle,
 };
 
-const taskTypeLabels: Record<string, string> = {
-  train: '训练',
-  infer: '推理',
-  verify: '验证',
-};
+interface LogEntry {
+  timestamp: Date;
+  message: string;
+}
 
 export default function TaskDetailPage() {
   const params = useParams();
   const router = useRouter();
   const taskId = params.taskId as string;
   const { data: task, isLoading, error } = useTask(taskId);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [sseConnected, setSseConnected] = useState(false);
+  const logsEndRef = useRef<HTMLDivElement>(null);
 
-  useTaskSSE(taskId);
+  // Track SSE connection
+  useEffect(() => {
+    if (!taskId) return;
+
+    const eventSource = new EventSource(`/api/proxy/tasks/${taskId}/events`);
+
+    eventSource.onopen = () => {
+      setSseConnected(true);
+    };
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.task_id === taskId && data.description) {
+          setLogs((prev) => [
+            ...prev.slice(-49), // Keep last 50 entries
+            { timestamp: new Date(), message: data.description },
+          ]);
+        }
+        if (data.task_id === taskId && (data.progress !== undefined || data.status)) {
+          setSseConnected(true);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    };
+
+    eventSource.onerror = () => {
+      setSseConnected(false);
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [taskId]);
+
+  // Auto-scroll to latest log
+  useEffect(() => {
+    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [logs]);
 
   if (isLoading) {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-4">
-          <button
-            onClick={() => router.push('/tasks')}
-            className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-10 w-10"
-          >
+          <Button variant="ghost" size="icon" onClick={() => router.push('/tasks')}>
             <ArrowLeft className="h-4 w-4" />
-          </button>
+          </Button>
           <h1 className="text-3xl font-bold">任务详情</h1>
         </div>
         <Card>
@@ -65,12 +106,9 @@ export default function TaskDetailPage() {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-4">
-          <button
-            onClick={() => router.push('/tasks')}
-            className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-10 w-10"
-          >
+          <Button variant="ghost" size="icon" onClick={() => router.push('/tasks')}>
             <ArrowLeft className="h-4 w-4" />
-          </button>
+          </Button>
           <h1 className="text-3xl font-bold">任务详情</h1>
         </div>
         <Card>
@@ -83,20 +121,32 @@ export default function TaskDetailPage() {
     );
   }
 
-  const status = statusConfig[task.status] || statusConfig.pending;
-  const StatusIcon = status.icon;
+  const status = getStatusConfig(task.status);
+  const StatusIcon = statusIconMap[task.status] || Clock;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <button
-            onClick={() => router.push('/tasks')}
-            className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-10 w-10"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
+        <Button variant="ghost" size="icon" onClick={() => router.push('/tasks')}>
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
         <div className="flex-1">
-          <h1 className="text-3xl font-bold">任务详情</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold">任务详情</h1>
+            {(task.status === 'running' || task.status === 'pending') && (
+              <div className="flex items-center gap-1.5">
+                <div
+                  className={cn(
+                    'w-2 h-2 rounded-full transition-colors',
+                    sseConnected ? 'bg-green-500 animate-pulse' : 'bg-muted'
+                  )}
+                />
+                <span className="text-xs text-muted-foreground">
+                  {sseConnected ? '实时同步' : '连接中...'}
+                </span>
+              </div>
+            )}
+          </div>
           <p className="text-muted-foreground font-mono text-sm">{task.task_id}</p>
         </div>
         <Badge variant={status.variant} className="text-sm px-3 py-1">
@@ -120,6 +170,48 @@ export default function TaskDetailPage() {
         </Card>
       )}
 
+      {/* Real-time Logs */}
+      {(task.status === 'running' || task.status === 'pending') && (
+        <Card className="border-muted-foreground/20">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Wifi className="h-4 w-4" />
+                实时日志
+              </CardTitle>
+              <span className="text-xs text-muted-foreground">{logs.length} 条</span>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="bg-black/90 rounded-b-lg max-h-[300px] overflow-y-auto font-mono text-sm">
+              {logs.length === 0 ? (
+                <div className="p-4 text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                  等待日志输出...
+                </div>
+              ) : (
+                <div className="p-3 space-y-1">
+                  {logs.map((log, i) => (
+                    <div key={i} className="flex gap-3 text-green-400">
+                      <span className="text-muted-foreground text-xs shrink-0">
+                        {log.timestamp.toLocaleTimeString('zh-CN', {
+                          hour12: false,
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                        })}
+                      </span>
+                      <span>{log.message}</span>
+                    </div>
+                  ))}
+                  <div ref={logsEndRef} />
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -129,7 +221,7 @@ export default function TaskDetailPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">任务类型</p>
-                <p className="font-medium">{taskTypeLabels[task.task_type] || task.task_type}</p>
+                <p className="font-medium">{getTaskTypeLabel(task.task_type)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">算法</p>

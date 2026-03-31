@@ -191,7 +191,7 @@ describe('ResourceChart', () => {
 
     render(<ResourceChart />);
     // Should show GPU usage chart title
-    expect(screen.getByText('GPU 使用率')).toBeInTheDocument();
+    expect(screen.getByText('GPU 资源使用')).toBeInTheDocument();
   });
 
   test('显示低中高GPU使用率图例', () => {
@@ -267,7 +267,7 @@ describe('ResourceChart', () => {
 
     render(<ResourceChart />);
     // Chart should render with high (>80%), medium (50-80%), and low (<50%) GPU usage
-    expect(screen.getByText('GPU 使用率')).toBeInTheDocument();
+    expect(screen.getByText('GPU 资源使用')).toBeInTheDocument();
     // Legend should show all three levels
     expect(screen.getByText(/低.*50%/)).toBeInTheDocument();
     expect(screen.getByText(/中.*50-80%/)).toBeInTheDocument();
@@ -298,7 +298,7 @@ describe('ResourceChart', () => {
 
     render(<ResourceChart />);
     // Verify chart renders - Tooltip formatter and contentStyle are used internally
-    expect(screen.getByText('GPU 使用率')).toBeInTheDocument();
+    expect(screen.getByText('GPU 资源使用')).toBeInTheDocument();
   });
 
   test('XAxis配置domain为0-100并使用tickFormatter', () => {
@@ -386,8 +386,9 @@ describe('ResourceChart', () => {
     render(<ResourceChart />);
     // Verify Tooltip formatter
     expect(mockState.tooltipFormatter).toBeDefined();
-    const result = mockState.tooltipFormatter(75);
-    expect(result).toEqual(['75%', 'GPU 使用率']);
+    // Tooltip formatter now takes (value, name) where name is 'gpu' or 'gpuMemory'
+    const result = mockState.tooltipFormatter(75, 'gpu');
+    expect(result).toEqual(['75%', 'GPU 利用率']);
     expect(mockState.tooltipContentStyle).toEqual({ fontSize: 12 });
   });
 
@@ -416,7 +417,9 @@ describe('ResourceChart', () => {
     render(<ResourceChart />);
     // Verify BarChart layout
     expect(mockState.layout).toBe('vertical');
-    expect(mockState.barDataKey).toBe('gpu');
+    // Now there are two Bar elements: gpu (GPU utilization) and gpuMemory (GPU memory)
+    // The mock captures the last Bar's dataKey which is 'gpuMemory'
+    expect(mockState.barDataKey).toBe('gpuMemory');
     expect(mockState.barRadius).toEqual([0, 4, 4, 0]);
   });
 
@@ -466,7 +469,7 @@ describe('ResourceChart', () => {
     // Verify Cell fill colors - the last cell rendered is for low usage (30%) which is green
     expect(mockState.cellFill).toBe('#22c55e'); // Green for <50%
     // The Cell component is called for each entry, so we verify the logic by checking the component renders
-    expect(screen.getByText('GPU 使用率')).toBeInTheDocument();
+    expect(screen.getByText('GPU 资源使用')).toBeInTheDocument();
   });
 
   // ===== Additional Coverage Tests =====

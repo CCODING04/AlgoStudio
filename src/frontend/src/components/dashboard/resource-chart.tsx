@@ -8,7 +8,19 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 interface NodeResource {
   name: string;
   gpu: number;
-  memory: number;
+  gpuMemory: number;
+}
+
+/**
+ * Parse memory string like "16.5Gi" or "8G" to a number in Gi.
+ */
+function parseMemoryToGi(memStr: string): number {
+  if (!memStr) return 0;
+  const match = memStr.match(/^([\d.]+)(Gi|G)$/i);
+  if (match) {
+    return parseFloat(match[1]);
+  }
+  return 0;
 }
 
 export function ResourceChart() {
@@ -49,11 +61,16 @@ export function ResourceChart() {
   // Treat 'online' and 'idle' as active states (Ray cluster states)
   const chartData: NodeResource[] = data.cluster_nodes
     .filter((node) => (node.status === 'online' || node.status === 'idle') && node.resources?.gpu?.utilization !== undefined)
-    .map((node) => ({
-      name: node.hostname || node.ip,
-      gpu: node.resources?.gpu?.utilization || 0,
-      memory: 0, // GPU memory calculation not straightforward with string format
-    }));
+    .map((node) => {
+      const gpuUsed = parseMemoryToGi(node.resources.gpu.memory_used);
+      const gpuTotal = parseMemoryToGi(node.resources.gpu.memory_total);
+      const gpuMemoryPct = gpuTotal > 0 ? Math.round((gpuUsed / gpuTotal) * 100) : 0;
+      return {
+        name: node.hostname || node.ip,
+        gpu: node.resources?.gpu?.utilization || 0,
+        gpuMemory: gpuMemoryPct,
+      };
+    });
 
   if (chartData.length === 0) {
     return (
@@ -76,42 +93,48 @@ export function ResourceChart() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Cpu className="h-5 w-5" />
-          GPU 使用率
+          GPU 资源使用
         </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="h-[200px]">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} layout="vertical">
+            <BarChart data={chartData} layout="vertical" barCategoryGap="30%">
               <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
               <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 12 }} />
               <Tooltip
-                formatter={(value) => [`${value}%`, 'GPU 使用率']}
+                formatter={(value, name) => [`${value}%`, name === 'gpu' ? 'GPU 利用率' : 'GPU 内存']}
                 contentStyle={{ fontSize: 12 }}
               />
-              <Bar dataKey="gpu" radius={[0, 4, 4, 0]}>
+              <Bar dataKey="gpu" name="GPU 利用率" radius={[0, 4, 4, 0]} maxBarSize={20}>
                 {chartData.map((entry, index) => (
                   <Cell
-                    key={`cell-${index}`}
+                    key={`cell-gpu-${index}`}
                     fill={entry.gpu > 80 ? '#ef4444' : entry.gpu > 50 ? '#f59e0b' : '#22c55e'}
                   />
                 ))}
               </Bar>
+              <Bar dataKey="gpuMemory" name="GPU 内存" radius={[0, 4, 4, 0]} maxBarSize={20} fill="#6366f1" fillOpacity={0.6}>
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
-        <div className="mt-4 flex items-center justify-center gap-4 text-xs">
-          <div className="flex items-center gap-1">
+        <div className="mt-4 flex items-center justify-center gap-6 text-xs">
+          <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded bg-green-500" />
-            <span>低 (&lt;50%)</span>
+            <span>GPU 利用率低 (&lt;50%)</span>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded bg-amber-500" />
-            <span>中 (50-80%)</span>
+            <span>GPU 利用率中 (50-80%)</span>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded bg-red-500" />
-            <span>高 (&gt;80%)</span>
+            <span>GPU 利用率高 (&gt;80%)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded bg-indigo-500" />
+            <span>GPU 内存</span>
           </div>
         </div>
       </CardContent>
