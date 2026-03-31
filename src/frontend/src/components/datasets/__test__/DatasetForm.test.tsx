@@ -57,6 +57,12 @@ jest.mock('lucide-react', () => ({
   Database: () => <div data-testid="database-icon" />,
   Loader2: () => <div data-testid="loader-icon" />,
   Sparkles: () => <div data-testid="sparkles-icon" />,
+  FolderOpen: () => <div data-testid="folder-open-icon" />,
+}));
+
+// Mock DatasetBrowser component
+jest.mock('@/components/datasets/DatasetBrowser', () => ({
+  DatasetBrowser: () => <div data-testid="dataset-browser" />,
 }));
 
 // Mock fetch globally

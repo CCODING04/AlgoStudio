@@ -407,6 +407,7 @@ describe('API Client', () => {
       mockedFetch.mockResolvedValueOnce({
         ok: false,
         status: 400,
+        json: async () => ({ error: 'Failed to create deploy worker' }),
       } as Response);
 
       await expect(createDeployWorker({
