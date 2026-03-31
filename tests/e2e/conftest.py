@@ -130,10 +130,13 @@ class SSEMockRequestHandler(BaseHTTPRequestHandler):
 
     def _send_json(self, data):
         """Send JSON response."""
+        json_data = json.dumps(data).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(json_data)))
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode())
+        self.wfile.write(json_data)
+        self.wfile.flush()
 
     def _send_error(self, code: int):
         """Send error response."""
