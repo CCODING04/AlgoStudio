@@ -195,10 +195,10 @@ export function DeployWizard({ hosts, algorithms, onDeploy }: DeployWizardProps)
               <div className="space-y-2" data-testid="deployed-nodes">
                 <label className="text-sm font-medium">已部署节点</label>
                 <div className="space-y-2">
-                  {hosts.filter((h) => h.status === 'online' && !h.is_local).length === 0 ? (
+                  {hosts.filter((h) => (h.status === 'online' || h.status === 'idle') && !h.is_local).length === 0 ? (
                     <p className="text-sm text-muted-foreground">暂无已部署的工作节点</p>
                   ) : (
-                    hosts.filter((h) => h.status === 'online' && !h.is_local).map((host) => (
+                    hosts.filter((h) => (h.status === 'online' || h.status === 'idle') && !h.is_local).map((host) => (
                       <div
                         key={host.node_id}
                         className="p-3 bg-muted rounded-lg flex items-center justify-between"
@@ -210,7 +210,9 @@ export function DeployWizard({ hosts, algorithms, onDeploy }: DeployWizardProps)
                             <p className="text-xs text-muted-foreground">{host.resources.gpu.name}</p>
                           )}
                         </div>
-                        <Badge variant="success">在线</Badge>
+                        <Badge variant={host.status === 'idle' ? 'secondary' : 'success'}>
+                          {host.status === 'idle' ? '空闲' : '在线'}
+                        </Badge>
                       </div>
                     ))
                   )}
@@ -224,17 +226,20 @@ export function DeployWizard({ hosts, algorithms, onDeploy }: DeployWizardProps)
                   value={selectedHost || ''}
                   onValueChange={setSelectedHost}
                   data-testid="deploy-node-select"
+                  disabled={hosts.filter((h) => (h.status === 'online' || h.status === 'idle') && !h.is_local).length === 0}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="选择主机" />
                   </SelectTrigger>
                   <SelectContent>
-                    {hosts.filter((h) => h.status === 'online').map((host) => (
-                      <SelectItem key={host.node_id} value={host.node_id}>
-                        {host.ip} ({host.hostname})
-                        {host.resources?.gpu?.name && ` - ${host.resources.gpu.name}`}
-                      </SelectItem>
-                    ))}
+                    {hosts
+                      .filter((h) => (h.status === 'online' || h.status === 'idle') && !h.is_local)
+                      .map((host) => (
+                        <SelectItem key={host.node_id} value={host.node_id}>
+                          {host.ip} ({host.hostname})
+                          {host.resources?.gpu?.name && ` - ${host.resources.gpu.name}`}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -255,14 +260,16 @@ export function DeployWizard({ hosts, algorithms, onDeploy }: DeployWizardProps)
                   )}
                   <p className="text-sm">
                     <span className="font-medium">状态:</span>{' '}
-                    <Badge variant="success">在线</Badge>
+                    <Badge variant={selectedHostData.status === 'idle' ? 'secondary' : 'success'}>
+                      {selectedHostData.status === 'idle' ? '空闲' : '在线'}
+                    </Badge>
                   </p>
                 </div>
               )}
 
-              {hosts.filter((h) => h.status === 'online').length === 0 && (
+              {hosts.filter((h) => (h.status === 'online' || h.status === 'idle') && !h.is_local).length === 0 && (
                 <p className="text-sm text-muted-foreground">
-                  暂无可用的在线主机
+                  暂无可用的工作节点。请先在 Hosts 页面确认 Worker 节点已连接到集群。
                 </p>
               )}
             </div>

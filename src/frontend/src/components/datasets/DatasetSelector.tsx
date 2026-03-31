@@ -156,6 +156,36 @@ export function DatasetSelector({
                   <div className="flex items-center justify-center h-32">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   </div>
+                ) : filteredDatasets.length === 0 && !searchQuery ? (
+                  <div className="text-center py-8">
+                    <p className="text-muted-foreground mb-4">暂无已注册的数据集</p>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      可在 Datasets 页面注册，或使用下方快速路径：
+                    </p>
+                    <div className="flex flex-wrap gap-2 justify-center">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => onChange('/mnt/VtrixDataset/data/cifar10')}
+                      >
+                        CIFAR-10
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => onChange('/mnt/VtrixDataset/data/coco')}
+                      >
+                        COCO
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => onChange('/mnt/VtrixDataset/data/train')}
+                      >
+                        默认训练路径
+                      </Button>
+                    </div>
+                  </div>
                 ) : filteredDatasets.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     {searchQuery ? '未找到匹配的数据集' : '暂无数据集'}

@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useTask } from '@/hooks/use-tasks';
 import { useTaskSSE } from '@/hooks/use-sse';
+import { dispatchTask } from '@/lib/api';
 import { Progress } from '@/components/ui/progress';
 import {
   ArrowLeft,
@@ -16,6 +17,7 @@ import {
   XCircle,
   Loader2,
   Wifi,
+  Play,
 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { getStatusConfig, getTaskTypeLabel } from '@/lib/constants';
@@ -38,10 +40,25 @@ export default function TaskDetailPage() {
   const params = useParams();
   const router = useRouter();
   const taskId = params.taskId as string;
-  const { data: task, isLoading, error } = useTask(taskId);
+  const { data: task, isLoading, error, refetch } = useTask(taskId);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [sseConnected, setSseConnected] = useState(false);
+  const [isDispatching, setIsDispatching] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
+
+  const handleDispatch = async () => {
+    if (!task || isDispatching) return;
+    setIsDispatching(true);
+    try {
+      await dispatchTask(task.task_id);
+      // Refresh task data
+      await refetch();
+    } catch (err) {
+      console.error('Failed to dispatch task:', err);
+    } finally {
+      setIsDispatching(false);
+    }
+  };
 
   // Track SSE connection
   useEffect(() => {
@@ -256,13 +273,39 @@ export default function TaskDetailPage() {
             <CardTitle className="text-lg">执行信息</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center gap-3">
-              <Server className="h-5 w-5 text-muted-foreground" />
-              <div>
-                <p className="text-sm text-muted-foreground">分配节点</p>
-                <p className="font-medium">{task.assigned_node || '未分配'}</p>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Server className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <p className="text-sm text-muted-foreground">分配节点</p>
+                  <p className="font-medium">{task.assigned_node || '未分配'}</p>
+                </div>
               </div>
+              {task.status === 'pending' && (
+                <Button
+                  size="sm"
+                  onClick={handleDispatch}
+                  disabled={isDispatching}
+                >
+                  {isDispatching ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      分发中...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4 mr-1" />
+                      立即分发
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
+            {task.status === 'pending' && !task.assigned_node && (
+              <p className="text-xs text-muted-foreground">
+                任务等待调度中。点击"立即分发"手动分配到可用节点。
+              </p>
+            )}
             {task.error && (
               <div className="flex items-start gap-3 p-3 rounded-lg bg-destructive/10">
                 <AlertCircle className="h-5 w-5 text-destructive mt-0.5" />

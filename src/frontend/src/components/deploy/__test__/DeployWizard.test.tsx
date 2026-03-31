@@ -572,7 +572,7 @@ describe('DeployWizard', () => {
     simulateSelectChange('deploy-version-select', 'v1');
     await user.click(screen.getByTestId('deploy-submit-button'));
 
-    expect(screen.getByText(/暂无可用的在线主机/i)).toBeInTheDocument();
+    expect(screen.getByText(/暂无可用的工作节点/i)).toBeInTheDocument();
   });
 
   test('shows selected host info after selection', async () => {
@@ -1007,6 +1007,6 @@ describe('DeployWizard', () => {
     await user.click(screen.getByTestId('deploy-submit-button'));
 
     // Should show no online hosts message
-    expect(screen.getByText(/暂无可用的在线主机/i)).toBeInTheDocument();
+    expect(screen.getByText(/暂无可用的工作节点/i)).toBeInTheDocument();
   });
 });

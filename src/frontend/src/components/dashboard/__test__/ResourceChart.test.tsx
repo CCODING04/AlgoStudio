@@ -388,7 +388,7 @@ describe('ResourceChart', () => {
     expect(mockState.tooltipFormatter).toBeDefined();
     // Tooltip formatter now takes (value, name) where name is 'gpu' or 'gpuMemory'
     const result = mockState.tooltipFormatter(75, 'gpu');
-    expect(result).toEqual(['75%', 'GPU 利用率']);
+    expect(result).toEqual(['75%', 'GPU 使用率']);
     expect(mockState.tooltipContentStyle).toEqual({ fontSize: 12 });
   });
 

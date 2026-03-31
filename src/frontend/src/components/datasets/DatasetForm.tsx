@@ -12,7 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, Database } from 'lucide-react';
+import { Loader2, Database, Sparkles } from 'lucide-react';
 
 interface DatasetFormProps {
   open: boolean;
@@ -21,6 +21,14 @@ interface DatasetFormProps {
   onSuccess: () => void;
   onUpdate: (id: string, data: { name?: string; path?: string }) => Promise<void>;
 }
+
+// Common dataset presets for quick selection
+const DATASET_PRESETS = [
+  { name: 'CIFAR-10', path: '/mnt/VtrixDataset/data/cifar10', description: 'CIFAR-10 图像分类数据集' },
+  { name: 'COCO', path: '/mnt/VtrixDataset/data/coco', description: 'COCO 目标检测数据集' },
+  { name: 'ImageNet', path: '/mnt/VtrixDataset/data/imagenet', description: 'ImageNet 分类数据集' },
+  { name: 'MNIST', path: '/mnt/VtrixDataset/data/mnist', description: 'MNIST 手写数字数据集' },
+];
 
 export function DatasetForm({
   open,
@@ -129,6 +137,34 @@ export function DatasetForm({
             </p>
           </div>
 
+          {/* Quick Presets */}
+          {!isEditing && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5">
+                <Sparkles className="h-3 w-3" />
+                快速选择
+              </Label>
+              <div className="flex flex-wrap gap-2">
+                {DATASET_PRESETS.map((preset) => (
+                  <Button
+                    key={preset.path}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setName(preset.name);
+                      setPath(preset.path);
+                    }}
+                    disabled={loading}
+                    title={preset.description}
+                  >
+                    {preset.name}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="size_gb">大小 (GB) - 可选</Label>
             <Input
@@ -154,6 +190,7 @@ export function DatasetForm({
               variant="outline"
               onClick={() => handleOpenChange(false)}
               disabled={loading}
+              data-testid="cancel-button"
             >
               取消
             </Button>

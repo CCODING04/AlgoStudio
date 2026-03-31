@@ -56,6 +56,7 @@ jest.mock('@/components/ui/label', () => ({
 jest.mock('lucide-react', () => ({
   Database: () => <div data-testid="database-icon" />,
   Loader2: () => <div data-testid="loader-icon" />,
+  Sparkles: () => <div data-testid="sparkles-icon" />,
 }));
 
 // Mock fetch globally
@@ -239,7 +240,7 @@ describe('DatasetForm', () => {
       />
     );
 
-    const cancelButton = screen.getByTestId('dialog-content').querySelector('button:not([type="submit"])');
+    const cancelButton = screen.getByTestId('cancel-button');
     if (cancelButton) {
       fireEvent.click(cancelButton);
     }

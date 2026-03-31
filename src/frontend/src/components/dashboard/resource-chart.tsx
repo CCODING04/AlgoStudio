@@ -7,6 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 
 interface NodeResource {
   name: string;
+  displayName: string;
   gpu: number;
   gpuMemory: number;
 }
@@ -21,6 +22,14 @@ function parseMemoryToGi(memStr: string): number {
     return parseFloat(match[1]);
   }
   return 0;
+}
+
+/**
+ * Truncate long hostname for display.
+ */
+function truncateName(name: string, maxLen: number = 20): string {
+  if (name.length <= maxLen) return name;
+  return name.slice(0, maxLen - 2) + '...';
 }
 
 export function ResourceChart() {
@@ -65,8 +74,10 @@ export function ResourceChart() {
       const gpuUsed = parseMemoryToGi(node.resources.gpu.memory_used);
       const gpuTotal = parseMemoryToGi(node.resources.gpu.memory_total);
       const gpuMemoryPct = gpuTotal > 0 ? Math.round((gpuUsed / gpuTotal) * 100) : 0;
+      const rawName = node.hostname || node.ip;
       return {
-        name: node.hostname || node.ip,
+        name: truncateName(rawName, 16),
+        displayName: rawName,
         gpu: node.resources?.gpu?.utilization || 0,
         gpuMemory: gpuMemoryPct,
       };
@@ -103,10 +114,18 @@ export function ResourceChart() {
               <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
               <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 12 }} />
               <Tooltip
-                formatter={(value, name) => [`${value}%`, name === 'gpu' ? 'GPU 利用率' : 'GPU 内存']}
+                formatter={(value, name) => {
+                  if (name === 'gpu') return [`${value}%`, 'GPU 使用率'];
+                  if (name === 'gpuMemory') return [`${value}%`, 'GPU 内存占用率'];
+                  return [`${value}%`, String(name)];
+                }}
+                labelFormatter={(label) => {
+                  const entry = chartData.find((d) => d.name === label);
+                  return entry?.displayName || label;
+                }}
                 contentStyle={{ fontSize: 12 }}
               />
-              <Bar dataKey="gpu" name="GPU 利用率" radius={[0, 4, 4, 0]} maxBarSize={20}>
+              <Bar dataKey="gpu" name="gpu" radius={[0, 4, 4, 0]} maxBarSize={20}>
                 {chartData.map((entry, index) => (
                   <Cell
                     key={`cell-gpu-${index}`}
@@ -114,7 +133,7 @@ export function ResourceChart() {
                   />
                 ))}
               </Bar>
-              <Bar dataKey="gpuMemory" name="GPU 内存" radius={[0, 4, 4, 0]} maxBarSize={20} fill="#6366f1" fillOpacity={0.6}>
+              <Bar dataKey="gpuMemory" name="gpuMemory" radius={[0, 4, 4, 0]} maxBarSize={20} fill="#6366f1" fillOpacity={0.6}>
               </Bar>
             </BarChart>
           </ResponsiveContainer>
