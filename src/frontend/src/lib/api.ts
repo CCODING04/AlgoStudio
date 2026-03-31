@@ -165,6 +165,11 @@ export async function createDeployWorker(request: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   });
-  if (!res.ok) throw new Error('Failed to create deploy worker');
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    // Extract meaningful error message from backend
+    const errorDetail = errorData?.detail?.error?.message || errorData?.detail?.error || errorData?.detail || errorData?.error || 'Failed to create deploy worker';
+    throw new Error(typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail));
+  }
   return res.json();
 }
