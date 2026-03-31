@@ -12,7 +12,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, Database, Sparkles } from 'lucide-react';
+import { Loader2, Database, Sparkles, FolderOpen } from 'lucide-react';
+import { DatasetBrowser } from './DatasetBrowser';
 
 interface DatasetFormProps {
   open: boolean;
@@ -41,6 +42,7 @@ export function DatasetForm({
   const [path, setPath] = useState(dataset?.path || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showBrowseDialog, setShowBrowseDialog] = useState(false);
 
   const isEditing = !!dataset?.dataset_id;
 
@@ -124,14 +126,28 @@ export function DatasetForm({
 
           <div className="space-y-2">
             <Label htmlFor="path">数据集路径</Label>
-            <Input
-              id="path"
-              type="text"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-              placeholder="/mnt/VtrixDataset/data/train"
-              disabled={loading}
-            />
+            <div className="flex gap-2">
+              <Input
+                id="path"
+                type="text"
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder="/mnt/VtrixDataset/data/train"
+                disabled={loading}
+                className="flex-1"
+              />
+              {!isEditing && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowBrowseDialog(true)}
+                  disabled={loading}
+                  title="浏览服务器目录"
+                >
+                  <FolderOpen className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
               数据集应通过 NFS/RSYNC 等方式预先放置到此路径
             </p>
@@ -201,6 +217,25 @@ export function DatasetForm({
           </div>
         </form>
       </DialogContent>
+
+      {/* Browse Server Dialog */}
+      <Dialog open={showBrowseDialog} onOpenChange={setShowBrowseDialog}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>浏览服务器目录</DialogTitle>
+            <DialogDescription>
+              选择服务器上的数据集目录
+            </DialogDescription>
+          </DialogHeader>
+          <DatasetBrowser
+            currentPath={path || '/mnt/VtrixDataset/data/'}
+            onSelect={(selectedPath) => {
+              setPath(selectedPath);
+              setShowBrowseDialog(false);
+            }}
+          />
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

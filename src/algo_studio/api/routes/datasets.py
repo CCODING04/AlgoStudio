@@ -227,6 +227,56 @@ async def list_datasets(
     )
 
 
+@router.get("/browse")
+async def browse_datasets(
+    path: str = Query(default="/mnt/VtrixDataset/data/", description="Directory path to browse"),
+    user: User = Depends(require_permission(Permission.DATASET_READ)),
+):
+    """Browse directories on the server to find available dataset folders.
+
+    This endpoint scans a directory and returns a list of subdirectories,
+    which can be used to populate the dataset selection dialog.
+
+    Args:
+        path: Directory path to browse (default: /mnt/VtrixDataset/data/)
+
+    Returns:
+        dict with 'folders' list and 'exists' boolean
+    """
+    import os
+
+    folders = []
+    exists = False
+
+    try:
+        # Security: ensure path starts with allowed prefix
+        allowed_prefixes = ["/mnt/VtrixDataset/", "/data/", "/datasets/"]
+        if not any(path.startswith(prefix) for prefix in allowed_prefixes):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Path must start with one of: {', '.join(allowed_prefixes)}"
+            )
+
+        if os.path.isdir(path):
+            exists = True
+            # List directories only
+            for item in os.listdir(path):
+                item_path = os.path.join(path, item)
+                if os.path.isdir(item_path):
+                    folders.append(item)
+            folders.sort(key=str.lower)  # Case-insensitive sort
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Permission denied to access path")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to browse path: {str(e)}")
+
+    return {
+        "path": path,
+        "folders": folders,
+        "exists": exists,
+    }
+
+
 @router.get("/{dataset_id}", response_model=DatasetResponse)
 async def get_dataset(
     dataset_id: str,

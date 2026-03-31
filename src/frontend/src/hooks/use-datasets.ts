@@ -3,6 +3,29 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { DatasetResponse, CreateDatasetRequest, UpdateDatasetRequest } from '@/types/dataset';
 
+export interface BrowseResponse {
+  path: string;
+  folders: string[];
+  exists: boolean;
+}
+
+export function useBrowseDatasets(path?: string) {
+  const queryPath = path || '/mnt/VtrixDataset/data/';
+  return useQuery<BrowseResponse>({
+    queryKey: ['datasets-browse', queryPath],
+    queryFn: async () => {
+      const res = await fetch(`/api/proxy/datasets/browse?path=${encodeURIComponent(queryPath)}`, {
+        cache: 'no-store',
+      });
+      if (!res.ok) throw new Error('Failed to browse datasets');
+      return res.json();
+    },
+    // Don't retry often - directory scans should be cheap but not hammering
+    retry: 2,
+    staleTime: 30000, // Consider stale after 30 seconds
+  });
+}
+
 export function useDatasets() {
   return useQuery<DatasetResponse[]>({
     queryKey: ['datasets'],
